@@ -125,5 +125,20 @@ strategies/       templates + your own contributed agent teams
 
 ---
 
+## Roadmap — what's actively being worked on
+
+The system is **live**: a server runs the arena continuously, picking up each game as it resolves and letting Agent 3 keep tuning every team from real outcomes. On top of that, these directions are in progress (in rough priority):
+
+- **A goal-expectancy / xG model** — the biggest edge unlock. Today the adjacent markets (spread / totals / team-totals) *anchor* their expected total to the market and only add value via the ELO supremacy **split**. An independent goal-expectancy model would supply a real, model-driven total — the difference between thin, noisy adjacent edge and genuine alpha.
+- **Promotion to live execution** — a gated "patch panel" that routes a *proven* team's signals (best-per-category, and only after it clears a sample-size + calibration bar) to real orders, with per-category risk fuses and a master kill switch. Validated on paper; promotion stays **off** until a team earns it.
+- **Exact-score specialist** — refining the correct-score (`KXWCSCORE`) team. The market is thin and illiquid, so the work is rate-limit-resilient pricing plus finding the sparse lines where the model genuinely beats the spread.
+- **Lower-latency in-play reactions** — the loop currently evaluates every ~2 minutes, so a goal scored mid-game isn't seen until the next tick. Faster detection (seconds, not minutes) + a warm order path would capture the post-goal repricing window on slow, thin books. The bottleneck is the **data feed**, not the model.
+- **In-cycle request throttling + 429 backoff** — so the in-play loop can safely run faster (1-min / 30s) without tripping Kalshi's rate limit (the per-cycle burst, not the cadence, is what trips it).
+- **Risk-tolerance tuning** — experimenting with how aggressively teams size and how low an edge bar they accept. More activity trades expected value for variance; the tournament is exactly where that tradeoff gets measured rather than guessed.
+
+> These are design directions, not promises — the point of the arena is to let *outcomes* decide which of them actually pay.
+
+---
+
 ## Disclaimer
 For research and education. Prediction-market trading carries risk; markets can be illiquid and mispriced against you. Nothing here is financial advice. Run paper-only until you deeply understand the behavior, and never commit money you can't lose.
