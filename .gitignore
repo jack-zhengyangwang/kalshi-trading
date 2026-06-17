@@ -20,3 +20,6 @@ venv/
 
 # ── os ──
 .DS_Store
+
+# v2 runtime state
+arena_v2_state/

@@ -59,23 +59,27 @@ ANTHROPIC_API_KEY=sk-ant-....
 
 ## 4. One-time model setup
 ```bash
-python3 group/run.py --fetch-stats   # download team ELO ratings → models/team_elo.json
+python3 models/fetch_stats.py        # download team ELO ratings → models/team_elo.json
 python3 models/train.py              # train the win-probability model → models/model.pkl
+# (optional) regenerate the v2 corner model from the bundled corpus:
+python3 models/train_corners.py      # → models/corners_model.json (already included)
 ```
-(If `clubelo.com` is unreachable, `--fetch-stats` falls back to bundled ratings.)
+(If `clubelo.com` is unreachable, ELO falls back to bundled ratings.)
 
 ---
 
-## 5. Run the arena
+## 5. Run the arena (v2)
 ```bash
-python3 arena.py --reset    # wipe state, replay every resolved game, train all teams
-python3 arena.py            # later: catch up new games + keep learning
+python3 arena_v2.py --replay 30   # seed the evolving population from resolved games
+python3 arena_v2.py --once        # one live cycle: settle → scan → bet → exit → evolve
+python3 arena_v2.py --status      # leaderboard: fitness, P&L, params per team
 ```
 Outputs:
-- `logs/arena.jsonl` — one line per game with the running standings
-- `logs/arena.out` — the live console log
-- `arena_state/` — each team's params, brain, account, and ledger (this is the "save file")
+- `logs/arena_v2.jsonl` — one line per cycle
+- `arena_v2_state/` — per-category team populations, stacker weights, LLM cache (the "save file")
 
 Verify auth is working: on start you should see `[KALSHI] RSA auth — key_id=…`. If you see `No auth credentials found`, re-check `.env` and the PEM path.
+
+> The legacy v1 arena runs the same way from its folder: `cd v1 && python3 arena.py --reset`.
 
 To keep it running 24/7 on a server, see **[DEPLOY.md](DEPLOY.md)**.

@@ -28,6 +28,7 @@ import time
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(BASE_DIR, "group"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # v1/: legacy agents/ live here
 
 from kalshi_client import KalshiClient            # noqa: E402
 from group.brain import Brain                     # noqa: E402

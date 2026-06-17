@@ -4,6 +4,13 @@ This document explains *why* the system is shaped the way it is. The one-sentenc
 version: **separate "what is it worth?" from "what do I do about it?", price every
 market off one honest model, size by edge, and let realized outcomes tune everything.**
 
+> **These are the shared principles behind both generations.** The current system,
+> **v2**, generalizes every one of them: the single fair value becomes a per-category
+> **stacker** the Brain re-tunes by accuracy; the fixed strategies become an **evolving
+> population**; the few markets become the **full match surface**. For v2's concrete
+> architecture see the [README](README.md#v2--the-current-system) and the full
+> [BUILD_PLAN_V2.md](BUILD_PLAN_V2.md). The reasoning below is what v2 is built on.
+
 ---
 
 ## 1. Two layers: the Brain vs. the agent teams

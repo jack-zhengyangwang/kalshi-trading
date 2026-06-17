@@ -42,14 +42,15 @@ chmod 600 ~/WorldCupTrading/kalshi_private_key.pem
 
 ## 4. One-time setup + a test run
 ```bash
-./venv/bin/python3 group/run.py --fetch-stats
+./venv/bin/python3 models/fetch_stats.py
 ./venv/bin/python3 models/train.py
-./venv/bin/python3 arena.py --reset        # replays all resolved games, trains teams
+./venv/bin/python3 arena_v2.py --replay 30   # seed the population from resolved games
+./venv/bin/python3 arena_v2.py --status      # confirm teams + standings
 ```
-You should see `[KALSHI] RSA auth — key_id=…` and the standings print at the end.
+You should see `[KALSHI] RSA auth — key_id=…`.
 
 ## 5. Keep it running with cron
-The arena does **one cycle per invocation** (scan + trade live + train), so schedule
+The arena does **one cycle per invocation** (settle → scan → bet → exit → evolve), so schedule
 it on a timer. Every 2 minutes is a good default that stays under Kalshi's rate limit:
 
 ```bash
@@ -57,10 +58,10 @@ crontab -e
 ```
 Add:
 ```
-*/2 * * * * cd /root/WorldCupTrading && flock -n /tmp/arena.lock ./venv/bin/python3 arena.py >> logs/arena.out 2>&1
+*/2 * * * * cd /root/WorldCupTrading && flock -n /tmp/arena_v2.lock ./venv/bin/python3 arena_v2.py --once >> logs/arena_v2.out 2>&1
 ```
-- `flock -n /tmp/arena.lock` ensures a slow cycle can never overlap the next one and corrupt state.
-- Pre-game pricing is internally throttled (it doesn't re-price every 2 min); in-play markets are evaluated each cycle.
+- `flock -n /tmp/arena_v2.lock` ensures a slow cycle can never overlap the next one and corrupt state.
+- The LLM (if enabled) is cadence-limited to one call per game per category; in-play legs are re-priced each cycle.
 
 > **Rate limits:** each in-play cycle makes a burst of orderbook calls. 2-minute
 > cadence is safe; going faster (1-min/30s) can trip Kalshi's per-window limit
@@ -68,8 +69,9 @@ Add:
 
 ## 6. Watch it
 ```bash
-tail -f logs/arena.out                 # live console
-cat logs/arena.jsonl | tail -5         # running standings, one line per game
+tail -f logs/arena_v2.out                      # live console
+./venv/bin/python3 arena_v2.py --status        # leaderboard
+tail -5 logs/arena_v2.jsonl                     # one line per cycle
 ```
 
 ## 7. Security

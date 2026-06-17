@@ -29,7 +29,8 @@ import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
-from group.run import _load_env_from_zshenv  # noqa: E402
+sys.path.insert(0, os.path.dirname(BASE_DIR))   # repo root: shared group/, kalshi_client
+from run import _load_env_from_zshenv  # noqa: E402  (run.py lives alongside in v1/)
 _load_env_from_zshenv()
 from kalshi_client import KalshiClient        # noqa: E402
 from group.brain import Brain                 # noqa: E402

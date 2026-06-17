@@ -31,6 +31,7 @@ import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
+sys.path.insert(0, os.path.dirname(BASE_DIR))   # repo root: shared group/, models/, kalshi_client (v1 lives in v1/)
 
 from group.env_portable import load_keys              # noqa: E402
 from kalshi_client import KalshiClient                # noqa: E402
