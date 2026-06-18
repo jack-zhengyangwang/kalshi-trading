@@ -1,5 +1,10 @@
 # Arena v2 — Build Plan
 
+> **This is the design/roadmap document.** For the *current* architecture and how to
+> run v2, start with the [README](README.md#v2--the-current-system); for the shared
+> design principles see [ARCHITECTURE.md](ARCHITECTURE.md). In this repo, v2 lives at
+> the root and the original 16-team arena referenced below now lives in [`v1/`](v1/).
+
 A full-surface Kalshi soccer betting arena. Tests one hypothesis: **there is
 genuine, harvestable edge across the entire Kalshi soccer market surface**, not
 just the match winner. The current 16-team arena (`arena.py`) stays running as
