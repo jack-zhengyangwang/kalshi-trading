@@ -136,5 +136,8 @@ The original system: **16 fixed teams** (4 market categories × 4 strategy arche
 ## Roadmap
 A goal-expectancy/xG model (the biggest edge unlock) · promotion to gated live execution · turning the LLM on (Design 2: priors + per-leg overrides) · activating events & player-props · faster in-play reactions. These are directions, not promises — the arena exists to let outcomes decide which pay.
 
+## License
+**Proprietary — EBK internal use only.** © 2026 Jack Wang, all rights reserved. Licensed for use solely by EBK and its authorized members; no use, copying, or distribution outside EBK without written permission. See [LICENSE](LICENSE).
+
 ## Disclaimer
-For research and education. Prediction-market trading carries risk; markets can be illiquid and mispriced against you. Nothing here is financial advice. Run paper-only until you deeply understand the behavior, and never commit money you can't lose.
+For research and education within EBK. Prediction-market trading carries risk; markets can be illiquid and mispriced against you. Nothing here is financial advice. Run paper-only until you deeply understand the behavior, and never commit money you can't lose.
