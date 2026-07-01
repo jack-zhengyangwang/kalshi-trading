@@ -1,0 +1,22 @@
+{
+  "brain_weights": {
+    "w_llm": 0.33,
+    "w_model": 0.33,
+    "w_data": 0.34
+  },
+  "kelly_fraction": 0.15,
+  "min_edge": 0.03,
+  "exit_take_profit_pct": 0.5,
+  "exit_sell_margin": 0.06,
+  "exit_stop_fair": 0.12,
+  "exit_fraction": 0.65,
+  "games_seen": 0,
+  "brier_scores": {
+    "llm": null,
+    "model": null,
+    "data": null
+  },
+  "processed_tickers": [],
+  "processed_exits": [],
+  "last_updated": null
+}

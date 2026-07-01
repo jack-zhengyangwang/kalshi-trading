@@ -1,0 +1,11 @@
+{
+  "_comment": "Promotion patch-panel. SAFE BY DEFAULT: master.armed=false → dry-run mirror only (no real orders, ever, until you set armed=true AND run live_promote.py --execute). mode: off|manual|auto. auto uses group/promotion.py (gated: needs >=20 resolved bets, +P&L, sane Brier). pin: team name for manual mode. Per-slot fuses: max_bet ($/order), max_open (positions), fuse_per_cycle ($/cycle). Master: daily_cap_dollars across all slots; kill cancels/blocks all.",
+  "master": { "armed": false, "kill": false, "daily_cap_dollars": 20.0 },
+  "slots": {
+    "winner":      { "mode": "auto", "pin": null, "max_bet": 2.0, "max_open": 3, "fuse_per_cycle": 4.0 },
+    "spread":      { "mode": "auto", "pin": null, "max_bet": 2.0, "max_open": 3, "fuse_per_cycle": 4.0 },
+    "team_props":  { "mode": "auto", "pin": null, "max_bet": 2.0, "max_open": 3, "fuse_per_cycle": 4.0 },
+    "game_events": { "mode": "auto", "pin": null, "max_bet": 2.0, "max_open": 3, "fuse_per_cycle": 4.0 },
+    "scoreline":   { "mode": "auto", "pin": null, "max_bet": 2.0, "max_open": 3, "fuse_per_cycle": 4.0 }
+  }
+}
