@@ -336,10 +336,18 @@ def run(execute=False):
     # SHARED: daily_spent (the daily cap), real_open, depth_left. PER-CAT: fuse, max_open.
     s2c = _series_to_cat()
     depth_left = {}                                  # live ask depth, shared across cats
+    # TRUE SCANNER: price the ENTIRE live KXWC surface ONCE via series_for("all")
+    # (= discover_kxwc_series, regex ^KXWC — no hardcoded menu). Every open market
+    # Kalshi lists — advance, group-winner, spreads, totals, corners, ... — is scanned
+    # and offered to EVERY armed agent, which bets on edge + its own market_focus.
+    # Novel market types (e.g. KXWCADVANCE) get LLM-priced (use_llm is on). One shared
+    # scan (not per-category) keeps Kalshi calls bounded.
+    _scan_brain = brains.get("winner") or brains.get("game_lines") or next(iter(brains.values()))
+    all_games = scn.price_games("all", client, _scan_brain, max_events=12, live=True)
+    _apply_base_rate(sum((g["legs"] for g in all_games), []))
     for c, members in members_by_cat.items():
         slot = sb["slots"][c]
-        games = scn.price_games(c, client, brains[c], max_events=8, live=True)
-        _apply_base_rate(sum((g["legs"] for g in games), []))
+        games = [dict(g, legs=list(g["legs"])) for g in all_games]   # shared full-surface scan
         only = set(slot.get("only_event_dates") or [])
         if only:
             games = [g for g in games if g.get("event", "")[:7] in only]
