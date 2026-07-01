@@ -122,7 +122,7 @@ def select(cat, n, allow_insample=False, window="pregame"):
                 if cb.get("pnl") is not None and bool(cb.get("in_play")) == want_ip
                 and "-" in cb["ticker"]
                 and (allow_insample or cb["ticker"].split("-")[1] not in seed)
-                and s2c.get(cb["ticker"].split("-")[0]) == cat]
+                and (cat is None or s2c.get(cb["ticker"].split("-")[0]) == cat)]
         pn = len(rows)
         if pn < min_n:
             continue
@@ -280,12 +280,17 @@ def run(execute=False):
     for c in cats:
         brains[c] = _brain(c)
         n_ens = max(1, int(sb["slots"][c].get("ensemble", 1)))
-        m = select(c, n_ens, allow_insample=ovr, window="pregame")
+        # UNIFIED-POOL SELECTION: pick agents by their WINDOW record ACROSS ALL categories
+        # (cat=None), not per-category — else a category the pool never bet pre-game (e.g.
+        # winner: 0 pre-game history) gets ZERO pre-game agents and its pre-game edges go
+        # unbet. The pre-game agents (aggressive_hold/favorite/...) are armed for EVERY
+        # armed category and bet whatever has edge.
+        m = select(None, n_ens, allow_insample=ovr, window="pregame")
         # IN-PLAY track: arm the top in-play agents too (momentum/late_scalp/flow), so the
         # ensemble isn't pre-game-only. Skipped if the slot is explicitly pregame_only.
         if not sb["slots"][c].get("pregame_only", False):
             seen = {x["lineage"] for x in m}
-            m = m + [x for x in select(c, n_ens, allow_insample=ovr, window="inplay")
+            m = m + [x for x in select(None, n_ens, allow_insample=ovr, window="inplay")
                      if x["lineage"] not in seen]
         if m:
             members_by_cat[c] = m
@@ -336,18 +341,14 @@ def run(execute=False):
     # SHARED: daily_spent (the daily cap), real_open, depth_left. PER-CAT: fuse, max_open.
     s2c = _series_to_cat()
     depth_left = {}                                  # live ask depth, shared across cats
-    # TRUE SCANNER: price the ENTIRE live KXWC surface ONCE via series_for("all")
-    # (= discover_kxwc_series, regex ^KXWC — no hardcoded menu). Every open market
-    # Kalshi lists — advance, group-winner, spreads, totals, corners, ... — is scanned
-    # and offered to EVERY armed agent, which bets on edge + its own market_focus.
-    # Novel market types (e.g. KXWCADVANCE) get LLM-priced (use_llm is on). One shared
-    # scan (not per-category) keeps Kalshi calls bounded.
-    _scan_brain = brains.get("winner") or brains.get("game_lines") or next(iter(brains.values()))
-    all_games = scn.price_games("all", client, _scan_brain, max_events=12, live=True)
-    _apply_base_rate(sum((g["legs"] for g in all_games), []))
+    # NOTE: full ^KXWC scan-all (series_for("all")) is WIP — the naive 109-series fetch
+    # is too slow (~144s) + rate-limits. Reverted to the curated per-category scan until
+    # the efficient (bulk-fetch) scanner lands. Cross-category agent selection (above)
+    # still ensures pre-game AND in-play agents are armed for every category.
     for c, members in members_by_cat.items():
         slot = sb["slots"][c]
-        games = [dict(g, legs=list(g["legs"])) for g in all_games]   # shared full-surface scan
+        games = scn.price_games(c, client, brains[c], max_events=8, live=True)
+        _apply_base_rate(sum((g["legs"] for g in games), []))
         only = set(slot.get("only_event_dates") or [])
         if only:
             games = [g for g in games if g.get("event", "")[:7] in only]
