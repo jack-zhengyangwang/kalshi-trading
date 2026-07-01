@@ -385,9 +385,13 @@ def run(execute=False):
                     depth = depth_left.get(tk, int(lg.get("ask_size", 0)))   # live book depth
                     if depth < 1:
                         continue
+                    tau = a3._tau_days(lg.get("close_time"))     # days until resolution
                     ctx = {"p_fair": lg["p_fair"], "ask": ask, "in_play": ip,
                            "minute": lg.get("minute"), "type": lg.get("_type"), "sigma": 0.12}
-                    bet = min(strat.entry_size(ctx, per_capital), max_bet)
+                    # pass tau so the TVM time-discount actually applies (it was silently
+                    # off — the promoter ignored time-to-resolution). Far-out markets get
+                    # sized DOWN by exp(-tvm_rate * tau_weeks); no hard cutoff.
+                    bet = min(strat.entry_size(ctx, per_capital, tau_days=tau), max_bet)
                     if bet <= 0:
                         continue
                     n = min(kelly.to_contracts(bet, ask / 100.0), depth)     # cap to live depth
