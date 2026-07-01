@@ -1,0 +1,15 @@
+import os
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_DIR = os.path.join(ROOT, "config")
+MODELS_DIR = os.path.join(ROOT, "models")
+LOGS_DIR = os.path.join(ROOT, "logs")
+STATE_V3 = os.path.join(ROOT, "arena_v3_state")
+STATE_V2 = os.path.join(ROOT, "arena_v2_state")
+CACHE_V3 = os.path.join(ROOT, "arena_v3_cache")
+CATS_FILE = os.path.join(CONFIG_DIR, "categories_v2.json")
+SWITCHBOARD_V3 = os.path.join(CONFIG_DIR, "switchboard_v3.json")
+SWITCHBOARD_V2 = os.path.join(CONFIG_DIR, "switchboard_v2.json")
+CORNERS_MODEL = os.path.join(MODELS_DIR, "corners_model.json")
+KEY_FILE = os.path.join(ROOT, "MyPersonalAgent.txt")
+for _d in (LOGS_DIR, STATE_V3, STATE_V2, CACHE_V3):
+    os.makedirs(_d, exist_ok=True)

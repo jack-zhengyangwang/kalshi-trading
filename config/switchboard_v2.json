@@ -1,0 +1,10 @@
+{
+  "_comment": "Arena v2 promotion patch-panel. LIVE config per user 2026-06-18: $600 split $300/$300 across the two eligible category leaders (winner + game_lines); game_props OFF (no eligible team). Per team: max_bet $20/order, fuse_per_cycle $50/round, max_open 8 positions. A REAL Kalshi order fires only when master.armed=true AND live_promote_v2.py --execute AND master.kill=false. Set master.kill=true to halt all real trading immediately.",
+  "master": { "armed": false, "kill": false, "total_capital_dollars": 600.0, "daily_cap_dollars": 100.0,
+              "hard_stop_loss_pct": 0.80, "kill_flattens": true },
+  "slots": {
+    "winner":     { "mode": "auto", "ensemble": 3, "member_capital": 100.0, "pin": null, "capital": 300.0, "max_bet": 20.0, "max_open": 8, "fuse_per_cycle": 50.0, "exit_mode": "hold" },
+    "game_lines": { "mode": "off",  "ensemble": 1, "pin": null, "capital": 0.0,   "max_bet": 8.0,  "max_open": 6, "fuse_per_cycle": 20.0, "exit_mode": "active" },
+    "game_props": { "mode": "off",  "ensemble": 1, "pin": null, "capital": 0.0,   "max_bet": 5.0,  "max_open": 4, "fuse_per_cycle": 10.0, "exit_mode": "active" }
+  }
+}
