@@ -51,7 +51,8 @@ CAT = "game_lines"
 SWITCHBOARD = paths.SWITCHBOARD_V3
 STATE = os.path.join(paths.STATE_V3, "promote_state_v3.json")
 PLOG = os.path.join(paths.LOGS_DIR, "promote_v3.jsonl")
-MIN_PREGAME_N = 10        # min resolved PRE-GAME bets before a team is promotable
+MIN_PREGAME_N = 10        # min resolved FORWARD pre-game bets before a team is promotable
+MIN_INSAMPLE_N = 5        # relaxed floor when master.override_forward_gate=true (in-sample test)
 
 
 def _load(path, default):
@@ -84,29 +85,46 @@ ARMED_CATS = ["winner", "game_lines"]    # categories this promoter can arm (gam
 
 
 def _brain(cat):
-    """Same brain as the replay: tuned stacker weights, LLM off, so live pricing
-    reproduces the validated edge. Per-category."""
+    """Tuned stacker weights + LIVE LLM pricing. The LLM is stacked as an extra source
+    on top of the validated structural model (it augments, doesn't replace it), priced
+    in real time per RECAP ('LLM belongs live'). Model: claude-haiku-4-5 (cheap/fast for
+    frequent cycles; override via config 'claude_model'). Per-category."""
     bw = _load(os.path.join(a3.STATE_V3, f"brain_{cat}.json"), None)
-    bconf = {"use_llm": False}
+    bconf = {"use_llm": True}
     if bw:
         bconf["stacker_weights"] = bw
     return BrainV2(bconf)
 
 
-def select(cat, n):
-    """Top-n `cat` teams by FORWARD (out-of-sample) PRE-GAME fitness. Excludes the
-    in-sample replay-seed games — arm ONLY on edge proven on games the population did
-    NOT train on. Returns [] (refuse to arm) until a team has >=MIN_PREGAME_N forward
-    pre-game bets with positive forward P&L."""
+def select(cat, n, allow_insample=False, window="pregame"):
+    """Top-n teams by `window` (pregame|inplay) fitness *in `cat`* from the UNIFIED pool
+    (teams_all.json —
+    one population that bets every category), scored ONLY on bets whose series maps to
+    `cat` so per-category fitness stays honest.
+
+    Default (allow_insample=False): FORWARD / out-of-sample only — excludes the in-sample
+    replay-seed games and needs >=MIN_PREGAME_N forward pre-game bets. Arms ONLY on edge
+    the population did NOT train on. Returns [] (refuse to arm) otherwise.
+
+    OVERRIDE (allow_insample=True, driven by switchboard master.override_forward_gate):
+    relaxes the gate — counts ALL pre-game bets incl. the in-sample seed and uses the
+    lower MIN_INSAMPLE_N floor. Still requires positive P&L (never arms a losing agent).
+    This bets UNVALIDATED (overfit-risk) in-sample edge — use ONLY for a deliberate live
+    test with tiny caps + kill ready."""
     seed = set(_load(os.path.join(a3.STATE_V3, "seed_events.json"), []))
-    teams = _load(os.path.join(a3.STATE_V3, f"teams_{cat}.json"), [])
+    teams = _load(os.path.join(a3.STATE_V3, "teams_all.json"), [])
+    s2c = _series_to_cat()
+    min_n = MIN_INSAMPLE_N if allow_insample else MIN_PREGAME_N
+    want_ip = (window == "inplay")           # select on the in-play record instead
     board = []
     for t in teams:
         rows = [cb for cb in t["closed"]
-                if cb.get("pnl") is not None and not cb.get("in_play")
-                and "-" in cb["ticker"] and cb["ticker"].split("-")[1] not in seed]
+                if cb.get("pnl") is not None and bool(cb.get("in_play")) == want_ip
+                and "-" in cb["ticker"]
+                and (allow_insample or cb["ticker"].split("-")[1] not in seed)
+                and s2c.get(cb["ticker"].split("-")[0]) == cat]
         pn = len(rows)
-        if pn < MIN_PREGAME_N:
+        if pn < min_n:
             continue
         pp = sum(cb["pnl"] for cb in rows)
         if pp <= 0:
@@ -115,7 +133,7 @@ def select(cat, n):
         pf = pp / math.sqrt(staked + 1.0)
         board.append({"lineage": t["lineage"], "params": t["params"],
                       "focus": t.get("market_focus"), "pre_pnl": round(pp, 2),
-                      "pre_n": pn, "pre_fit": round(pf, 3)})
+                      "pre_n": pn, "pre_fit": round(pf, 3), "window": window})
     board.sort(key=lambda r: r["pre_fit"], reverse=True)
     return board[:n]
 
@@ -252,18 +270,31 @@ def run(execute=False):
     real_entries = bool(master.get("armed") and execute and not master.get("kill"))
     mode_str = "REAL-ORDERS" if real_entries else "DRY-RUN MIRROR"
 
-    # armed categories (slots that are on) → forward-only ensemble per category
+    # armed categories (slots that are on) → ensemble per category (forward-only unless
+    # master.override_forward_gate relaxes it to in-sample for a deliberate live test)
+    ovr = bool(master.get("override_forward_gate", False))
     cats = [c for c in ARMED_CATS if sb["slots"].get(c, {}).get("mode", "off") != "off"]
-    print(f"[live_promote_v3] {mode_str}  ({ts}; LA-day {today})  cats={cats}")
+    print(f"[live_promote_v3] {mode_str}  ({ts}; LA-day {today})  cats={cats}"
+          + ("  [OVERRIDE: in-sample gate]" if ovr else ""))
     members_by_cat, brains, params_by_cat = {}, {}, {}
     for c in cats:
         brains[c] = _brain(c)
-        m = select(c, max(1, int(sb["slots"][c].get("ensemble", 1))))
+        n_ens = max(1, int(sb["slots"][c].get("ensemble", 1)))
+        m = select(c, n_ens, allow_insample=ovr, window="pregame")
+        # IN-PLAY track: arm the top in-play agents too (momentum/late_scalp/flow), so the
+        # ensemble isn't pre-game-only. Skipped if the slot is explicitly pregame_only.
+        if not sb["slots"][c].get("pregame_only", False):
+            seen = {x["lineage"] for x in m}
+            m = m + [x for x in select(c, n_ens, allow_insample=ovr, window="inplay")
+                     if x["lineage"] not in seen]
         if m:
             members_by_cat[c] = m
-            params_by_cat[c] = m[0]["params"]        # top member's params drive that cat's exits
-        print(f"  {c}: " + (", ".join(f"{x['lineage']}(pre ${x['pre_pnl']:+.0f}/{x['pre_n']})"
-                                      for x in m) if m else "no eligible team"))
+            # exits: prefer a pre-game member's params; fall back to the top member
+            pre = next((x for x in m if x["window"] == "pregame"), m[0])
+            params_by_cat[c] = pre["params"]
+        print(f"  {c}: " + (", ".join(f"{x['lineage']}({'ip' if x['window']=='inplay' else 'pre'} "
+                                      f"${x['pre_pnl']:+.0f}/{x['pre_n']})" for x in m)
+                            if m else "no eligible team"))
 
     client = KalshiClientV2(req_per_sec=4)
     state = _load(STATE, {"mirror": {}, "daily": {}})
