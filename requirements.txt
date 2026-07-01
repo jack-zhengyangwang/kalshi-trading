@@ -1,5 +1,0 @@
-anthropic
-scikit-learn==1.6.1
-pandas
-requests
-cryptography
