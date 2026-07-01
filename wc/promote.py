@@ -285,18 +285,21 @@ def run(execute=False):
         # winner: 0 pre-game history) gets ZERO pre-game agents and its pre-game edges go
         # unbet. The pre-game agents (aggressive_hold/favorite/...) are armed for EVERY
         # armed category and bet whatever has edge.
+        # Ensemble = top-N by PRE-GAME record + top-N by IN-PLAY record (how they're
+        # RANKED). This is the "top-3 pregame + top-3 in-play" selection.
         m = select(None, n_ens, allow_insample=ovr, window="pregame")
-        # IN-PLAY track: arm the top in-play agents too (momentum/late_scalp/flow), so the
-        # ensemble isn't pre-game-only. Skipped if the slot is explicitly pregame_only.
-        if not sb["slots"][c].get("pregame_only", False):
-            seen = {x["lineage"] for x in m}
-            m = m + [x for x in select(None, n_ens, allow_insample=ovr, window="inplay")
-                     if x["lineage"] not in seen]
+        seen = {x["lineage"] for x in m}
+        m = m + [x for x in select(None, n_ens, allow_insample=ovr, window="inplay")
+                 if x["lineage"] not in seen]
+        # AGENTS ARE FREE TO BET BOTH WINDOWS + ALL CATEGORIES. Selection ranks them by
+        # their proven window, but once armed every agent may bet BOTH pre-game AND in-play,
+        # across every scanned market, wherever there's edge — no per-window / per-category
+        # restriction (force pregame=1 AND inplay=1 on each, overriding the archetype flag).
+        for x in m:
+            x["params"] = dict(x["params"], pregame=1, inplay=1)
         if m:
             members_by_cat[c] = m
-            # exits: prefer a pre-game member's params; fall back to the top member
-            pre = next((x for x in m if x["window"] == "pregame"), m[0])
-            params_by_cat[c] = pre["params"]
+            params_by_cat[c] = m[0]["params"]        # top member's params drive exits
         print(f"  {c}: " + (", ".join(f"{x['lineage']}({'ip' if x['window']=='inplay' else 'pre'} "
                                       f"${x['pre_pnl']:+.0f}/{x['pre_n']})" for x in m)
                             if m else "no eligible team"))
