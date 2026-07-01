@@ -83,10 +83,15 @@ def seed_params():
         # CORNERS specialist — the real corner edge is IN-PLAY on TEAM corners
         # (dominating side, via live ESPN corners + dominance). Totals = no edge,
         # so focus team_corners only; edges are small (~2-4%) → low min_edge, tight cap.
+        # EXIT FIX: a team-corner OVER on a dominating side is a MONOTONE accumulator —
+        # its prob only ratchets up as corners arrive, so a fair-price STOP just dumps it
+        # on noise/lumpy timing before the corners come (that was the replay "0% win").
+        # So the STOP is pinned to its floor (~off → hold-to-settle); the ONLY exit is
+        # OVERPRICED scale-out (harvest market overshoot) + a one-shot take-profit.
         "corners":  (mk(pregame=0, inplay=1, scalp=0, price_floor=0.12, price_ceiling=0.90,
                         alloc_tilt=1.0, min_edge=0.015, kelly_fraction=0.20,
                         unit_cap_frac=0.04, exit_take_profit_pct=0.4,
-                        exit_sell_margin=0.05, exit_stop_fair=0.08), ["team_corners"]),
+                        exit_sell_margin=0.05, exit_stop_fair=0.02), ["team_corners"]),
         # balanced value hunter — bets value across a wide band, tilt to high-prob
         "value_hunter": (mk(pregame=1, inplay=0, price_floor=0.12, price_ceiling=0.9,
                             alloc_tilt=1.2, min_edge=0.03, unit_cap_frac=0.04), None),
