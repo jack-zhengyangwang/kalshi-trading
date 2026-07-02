@@ -95,6 +95,51 @@ def series_for(super_cat, client=None, refresh=False):
     return [s for s in found if s not in skip]
 
 
+_GAME_SERIES_CACHE = os.path.join(paths.STATE_V3, "kxwc_game_series_cache.json")
+_GAMECODE_RE = re.compile(r"^\d{2}[A-Z]{3}\d{2}[A-Z]{4,}$")
+
+
+def game_series(client, ttl=43200, refresh=False, now=None):
+    """Cached list of GAME-LEVEL KXWC series — those with per-game events (winner,
+    spread, total, corners, ADVANCE, goalscorer, ...). Lets the per-game scanner fetch
+    only these (~24) instead of all ~110 series. Discovered by probing each discovered
+    series for an event on the soonest game; cached `ttl` seconds (refresh occasionally
+    so new market types are picked up). Falls back to the full discovered set if empty."""
+    import time as _t
+    now = _t.time() if now is None else now
+    if not refresh:
+        try:
+            c = json.load(open(_GAME_SERIES_CACHE))
+            if now - c.get("ts", 0) < ttl and c.get("series"):
+                return c["series"]
+        except Exception:
+            pass
+    allser = discover_kxwc_series(client)
+    sample = None
+    for m in client.list_markets_by_series("KXWCGAME"):
+        ec = event_code(m["ticker"])
+        if ec and _GAMECODE_RE.match(ec):
+            sample = ec
+            break
+    game_lvl = []
+    if sample:
+        for s in allser:
+            try:
+                r = client._get("/markets", {"event_ticker": f"{s}-{sample}", "limit": 5})
+                if r.get("markets"):
+                    game_lvl.append(s)
+            except Exception:
+                pass
+    game_lvl = sorted(set(game_lvl)) or allser        # fall back to all if probe found nothing
+    try:
+        os.makedirs(os.path.dirname(_GAME_SERIES_CACHE), exist_ok=True)
+        json.dump({"ts": now, "series": game_lvl, "sample": sample},
+                  open(_GAME_SERIES_CACHE, "w"))
+    except Exception:
+        pass
+    return game_lvl
+
+
 def event_code(ticker):
     parts = ticker.split("-")
     return parts[1] if len(parts) > 1 else None
@@ -197,15 +242,19 @@ def _event_when(ec):
 
 
 def price_games(super_cat, client, brain, max_events=3, min_volume=100,
-                min_ask_size=5, live=False):
+                min_ask_size=5, live=False, series=None, only_games=None):
     """Price EVERY tradeable leg of the soonest `max_events` games in a category.
     Returns [{event, home, away, market_total, corner_mean, elo_known, in_play,
     legs:[...]}] where each leg = {ticker, sub, type, period, leg_is_home, parsed,
     p_fair, sources, bid, ask, vol, in_play, minute}. No edge filter.
 
     When live=True, games ESPN reports as in-progress are re-priced on the live
-    score/minute/corners (full-period legs only); pre-game games price as usual."""
-    series = series_for(super_cat, client)
+    score/minute/corners (full-period legs only); pre-game games price as usual.
+
+    `series` overrides the series universe (e.g. the game-level set from game_series()
+    for a per-game full-surface scan). `only_games` (set of event codes) restricts
+    pricing to those games — used by the per-game dual-frequency scanner."""
+    series = series if series is not None else series_for(super_cat, client)
     fetch = list(dict.fromkeys(series + CONTEXT_SERIES))
     by_series = {s: client.list_markets_by_series(s) for s in fetch}
     sb_events = lf.scoreboard_events() if live else []
@@ -239,7 +288,9 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
         return (not in_play, _event_when(ec), ec)
 
     results = []
-    for ec in sorted((e for e in legs_by_event if e in events), key=_order_key)[:max_events]:
+    _cands = [e for e in legs_by_event if e in events
+              and (only_games is None or e in only_games)]
+    for ec in sorted(_cands, key=_order_key)[:max_events]:
         info = events[ec]
         home, away = info["home"], info["away"]
         legs = legs_by_event[ec]
