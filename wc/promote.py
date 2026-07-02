@@ -395,14 +395,33 @@ def run(execute=False):
     # SHARED: daily_spent (the daily cap), real_open, depth_left. PER-CAT: fuse, max_open.
     s2c = _series_to_cat()
     depth_left = {}                                  # live ask depth, shared across cats
-    # NOTE: full ^KXWC scan-all (series_for("all")) is WIP — the naive 109-series fetch
-    # is too slow (~144s) + rate-limits. Reverted to the curated per-category scan until
-    # the efficient (bulk-fetch) scanner lands. Cross-category agent selection (above)
-    # still ensures pre-game AND in-play agents are armed for every category.
+    # DUAL-FREQUENCY PER-GAME SCANNER: full ^KXWC surface, but only for NEAR games.
+    # game_series() gives the ~24 game-level series (cached) so the fetch is cheap.
+    # Selection: within the 48h horizon, LIVE games are scanned EVERY cycle (fast), and
+    # each PRE-GAME game is scanned once per day; far/idle games are skipped entirely.
+    gseries = scn.game_series(client)
+    sb_events = scn.lf.scoreboard_events()
+    scanned = state.setdefault("pregame_scanned", {})
+    targets = set()
+    for m in client.list_markets_by_series("KXWCGAME"):
+        gc = scn.event_code(m["ticker"])
+        if not gc or _event_tau_days(gc) > 2.0:      # 48h horizon
+            continue
+        h, a = scn.home_away(m.get("title"))
+        st = scn.lf.state_from_events(sb_events, h, a) if h else None
+        if st and st.get("status") == "in":
+            targets.add(gc)                          # in-play → scan every cycle
+        elif scanned.get(gc) != today:               # pre-game → once per day
+            targets.add(gc); scanned[gc] = today
+    scan_brain = brains.get("winner") or brains.get("game_lines") or next(iter(brains.values()))
+    all_games = (scn.price_games(None, client, scan_brain, max_events=len(targets) + 1,
+                                 live=True, series=gseries, only_games=targets)
+                 if targets else [])
+    _apply_base_rate(sum((g["legs"] for g in all_games), []))
+    print(f"  per-game scan: {len(all_games)} game(s) full-surface, targets={sorted(targets)}")
     for c, members in members_by_cat.items():
         slot = sb["slots"][c]
-        games = scn.price_games(c, client, brains[c], max_events=8, live=True)
-        _apply_base_rate(sum((g["legs"] for g in games), []))
+        games = [dict(g, legs=list(g["legs"])) for g in all_games]   # shared per-game full-surface scan
         only = set(slot.get("only_event_dates") or [])
         if only:
             games = [g for g in games if g.get("event", "")[:7] in only]
