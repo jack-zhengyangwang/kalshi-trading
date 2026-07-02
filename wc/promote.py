@@ -46,6 +46,24 @@ import wc.markets as mv
 import wc.arena as a3
 from wc.core.promote_base import (_series_to_cat, _event_homeaway, _exit_decision,
                              _maintenance)
+from wc.lib.exit_rules import disarm            # #7: consume one-shot exit triggers
+import wc.prediction_db as pdb                  # #8/#9: record live predictions + close the loop
+
+_MON = {"JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+        "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12}
+
+
+def _event_tau_days(event, now=None):
+    """Days until a game resolves, from the DATE in its event code (e.g.
+    '26JUL01USABIH' -> 2026-07-01, end of day). Kalshi's close_time is a far-out
+    admin date, so we use the game date. Unparseable -> 999 (treated as far-out)."""
+    try:
+        y = 2000 + int(event[0:2]); mon = _MON[event[2:5]]; d = int(event[5:7])
+        game = dt.datetime(y, mon, d, 23, 59, tzinfo=dt.timezone.utc)
+        now = now or dt.datetime.now(dt.timezone.utc)
+        return (game - now).total_seconds() / 86400.0
+    except Exception:
+        return 999.0
 
 CAT = "game_lines"
 SWITCHBOARD = paths.SWITCHBOARD_V3
@@ -228,6 +246,7 @@ def manage_exits(client, sb, state, manage_real, params_by_cat, brains, rows, ts
                      "act": action, "ticker": tk, "n": nsell, "bid": bid_c,
                      "entry": round(h["entry"], 3) if h["entry"] else None,
                      "live_fair": round(live_fair, 3) if live_fair is not None else None})
+        disarm(action, flags)     # #7: consume OVERPRICED/TAKE_PROFIT one-shot after a confirmed sell
     if not manage_real:
         for mkey, acc in mirror_accts.items():
             state["mirror"][mkey] = acc.to_dict()
@@ -252,6 +271,33 @@ def _member_open_exposure(cat, team, real_open):
                 and real_open.get(r.get("ticker"), 0) > 0):
             exp += r.get("cost", 0) or 0.0
     return exp
+
+
+def _train_from_real(brains, client):
+    """#9: close the loop — grade REAL predictions and re-tune each category's brain
+    stacker weights from realized outcomes, so forward games keep updating the model.
+    Idempotent grading; thin-sample-guarded (update_stacker no-ops below 15 outcomes)."""
+    try:
+        pdb.grade(client)                       # settle newly-resolved real predictions
+    except Exception as e:
+        print(f"  [train] grade skipped: {e}")
+        return
+    src_by_tk, cat_by_tk = {}, {}               # join graded outcome -> prediction's source blend
+    for p in pdb._read(pdb.PRED_LOG):
+        tk = p.get("ticker")
+        if tk and p.get("sources"):
+            src_by_tk[tk] = p["sources"]; cat_by_tk[tk] = p.get("cat")
+    by_cat = {}
+    for g in pdb._read(pdb.GRADED_LOG):
+        tk = g.get("ticker"); s = src_by_tk.get(tk); cat = cat_by_tk.get(tk)
+        if s and cat in brains and g.get("outcome") is not None:
+            by_cat.setdefault(cat, []).append({"sources": s, "outcome": g["outcome"]})
+    for cat, resolved in by_cat.items():
+        old = dict(brains[cat].weights)
+        neww = brains[cat].update_stacker(resolved)   # in-place; no-op < min_sample
+        if neww != old:
+            _save(os.path.join(a3.STATE_V3, f"brain_{cat}.json"), neww)
+            print(f"  [train] {cat}: stacker re-tuned from {len(resolved)} real outcomes -> {neww}")
 
 
 def run(execute=False):
@@ -320,6 +366,11 @@ def run(execute=False):
             print(f"  [ABORT] real position read failed ({e}) — no exits/entries this cycle")
             return
 
+    # #9: close the loop — grade real outcomes + re-tune each brain BEFORE this cycle
+    # prices, so forward games keep updating the model (in-place, applies this cycle too).
+    if executing:
+        _train_from_real(brains, client)
+
     rows = []
     # EXITS / KILL-FLATTEN: run on the real book whenever executing, regardless of
     # armed — disarming or kill must NEVER abandon open real positions.
@@ -372,18 +423,21 @@ def run(execute=False):
             member_exp = (_member_open_exposure(c, member["lineage"], real_open)
                           if real_entries else 0.0)
             if real_entries:
-                owned = set(real_open)
+                # #6 CONFLICT: only block a YES buy if the account already holds NO on the
+                # EXACT same market (Kalshi nets YES+NO → self-cancel). Same-side pile-on by
+                # multiple agents on the same ticker is allowed.
+                opposing = {tk for tk, pos in real_open.items() if pos < 0}
                 cat_open = sum(1 for tk in real_open if real_open[tk] > 0
                                and s2c.get(tk.split("-")[0]) == c)
             else:
-                owned = set(mirror.positions)
+                opposing = set()                     # mirror only ever holds YES
                 cat_open = len(mirror.positions)
             cycle_spent = 0.0
             ev_seen = set()
             for g in games:
                 for lg in g["legs"]:
                     tk, ask = lg["ticker"], lg["ask"]
-                    if not ask or tk in owned or cat_open >= max_open:
+                    if not ask or tk in opposing or cat_open >= max_open:
                         continue
                     if lg.get("_period", "full") not in a3.BET_PERIODS:
                         continue                       # full-match legs only (no 1H/2H)
@@ -397,12 +451,12 @@ def run(execute=False):
                     depth = depth_left.get(tk, int(lg.get("ask_size", 0)))   # live book depth
                     if depth < 1:
                         continue
-                    tau = a3._tau_days(lg.get("close_time"))     # days until resolution
+                    tau = _event_tau_days(g["event"])            # real days to game (event date, not close_time)
+                    if tau > 2.0:                                # #2a HARD STOP: no bets resolving >48h out
+                        continue
                     ctx = {"p_fair": lg["p_fair"], "ask": ask, "in_play": ip,
                            "minute": lg.get("minute"), "type": lg.get("_type"), "sigma": 0.12}
-                    # pass tau so the TVM time-discount actually applies (it was silently
-                    # off — the promoter ignored time-to-resolution). Far-out markets get
-                    # sized DOWN by exp(-tvm_rate * tau_weeks); no hard cutoff.
+                    # pass tau so the TVM time-discount also applies within the 48h window
                     bet = min(strat.entry_size(ctx, per_capital, tau_days=tau), max_bet)
                     if bet <= 0:
                         continue
@@ -425,13 +479,23 @@ def run(execute=False):
                     else:
                         ok = mirror.buy(tk, n, ask / 100.0, {"sub": lg["sub"], "event": g["event"]})
                     if ok:
-                        owned.add(tk); ev_seen.add(g["event"])
+                        ev_seen.add(g["event"])
                         depth_left[tk] = depth - n          # deplete shared live depth
                         cycle_spent += cost; cat_open += 1; member_exp += cost
                         rows.append({"ts": ts, "mode": mode_str, "cat": c, "team": member["lineage"],
                                      "act": "BUY", "ticker": tk, "sub": lg["sub"], "n": n, "in_play": ip,
                                      "ask": ask, "edge": round(lg["p_fair"] - ask / 100.0, 3),
                                      "cost": round(cost, 2)})
+                        if real_entries:                    # #8: record the REAL bet + its p_fair sources
+                            pdb.log_prediction({
+                                "ticker": tk, "series": tk.split("-")[0], "event": g["event"],
+                                "sub": lg["sub"], "type": lg.get("_type"), "period": lg.get("_period"),
+                                "in_play": ip, "minute": lg.get("minute"), "p_fair": lg["p_fair"],
+                                "sources": lg.get("sources") or {}, "source": lg.get("source"),
+                                "ask": ask, "bid": lg.get("bid"),
+                                "edge": round(lg["p_fair"] - ask / 100.0, 3),
+                                "entered": True, "n": n, "team": member["lineage"], "cat": c,
+                            }, ts=ts)
             state["mirror"][mkey] = mirror.to_dict()
             print(f"  {c}/{member['lineage']}: cycle real spend ${cycle_spent:.2f}/{fuse}"
                   f" | exposure ${member_exp:.2f}/{member_cap:.0f}")
