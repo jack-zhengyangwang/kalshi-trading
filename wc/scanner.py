@@ -242,7 +242,7 @@ def _event_when(ec):
 
 
 def price_games(super_cat, client, brain, max_events=3, min_volume=100,
-                min_ask_size=5, live=False, series=None, only_games=None):
+                min_ask_size=5, live=False, series=None, only_games=None, llm_cap=30):
     """Price EVERY tradeable leg of the soonest `max_events` games in a category.
     Returns [{event, home, away, market_total, corner_mean, elo_known, in_play,
     legs:[...]}] where each leg = {ticker, sub, type, period, leg_is_home, parsed,
@@ -288,6 +288,7 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
         return (not in_play, _event_when(ec), ec)
 
     results = []
+    llm_n = 0                                   # per-scan LLM-call budget (see llm_cap)
     _cands = [e for e in legs_by_event if e in events
               and (only_games is None or e in only_games)]
     for ec in sorted(_cands, key=_order_key)[:max_events]:
@@ -335,12 +336,16 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
             if not ask:
                 continue
             if unknown:
-                # No structural model for this leg type (knockout/outright markets:
-                # advance, regulation result, margin, matchup, ...) -> LLM-only
-                # fallback so the scanner still prices and can bet it. Silently
+                # No structural model (goalscorer / player props — advance/margin are
+                # now priced structurally) -> LLM-only fallback, CAPPED at llm_cap per
+                # scan so a firehose of exotic legs can't stall the cycle. Silently
                 # skipped if the LLM is disabled for this brain.
+                if llm_n >= llm_cap:
+                    continue
                 mm = dict(m); mm["yes_bid_cents"] = bid
                 p, sources = brain.llm_price_market(mm, market_mid=mkt)
+                if p is not None:
+                    llm_n += 1
                 src = "llm"
             elif in_play:
                 pdata = brain.live_pfair(parsed, lprior, lh, corners_so_far)
