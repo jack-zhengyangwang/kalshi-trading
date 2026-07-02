@@ -59,6 +59,9 @@ SERIES_SPEC = {
     "KXWC2HSPREAD":  ("spread", "2H"),
     "KXWC2HBTTS":    ("btts", "2H"),
     "KXWCFIRSTGOAL": ("first_goalscorer", "full"),
+    "KXWCADVANCE":   ("advance", "full"),        # "USA advances" (knockout progression)
+    "KXWCMOV":       ("win_method", "full"),     # "USA to win in Regulation/ET/Penalties"
+    "KXWCMOF":       ("decide_phase", "full"),   # "Either team advances in Reg/ET/Pen"
 }
 
 _OVER_RE = re.compile(r"over\s+(\d+(?:\.\d+)?)", re.I)          # "over 2.5 goals"
@@ -122,6 +125,16 @@ def parse_market_v2(ticker, sub_title):
             team, threshold = mc.group(1).strip(), int(mc.group(2))
     elif typ == "first_to_score":
         team = None if sub.strip().lower() in ("no goal", "none", "no") else sub.strip()
+    elif typ == "advance":                              # "USA advances"
+        team = re.sub(r"\s+advances?\s*$", "", sub, flags=re.I).strip() or None
+    elif typ == "win_method":                           # "USA to win in Regulation Time"
+        team = sub.split(" to win")[0].strip() or None
+
+    phase = None                                        # reg / et / pen for win_method + decide_phase
+    if typ in ("win_method", "decide_phase"):
+        s = sub.lower()
+        phase = ("reg" if "regulation" in s else "et" if "extra" in s
+                 else "pen" if ("penalt" in s or "shootout" in s) else None)
 
     score = None
     if typ == "score":
@@ -132,7 +145,7 @@ def parse_market_v2(ticker, sub_title):
             # in the brain. Here keep raw (higher, lower) tagged by winner text.
             score = {"a": a, "b": b, "winner_text": _SCORE_RE.split(sub, 1)[0].strip()}
     return {"type": typ, "period": period, "line": line,
-            "threshold": threshold, "team": team, "score": score}
+            "threshold": threshold, "team": team, "score": score, "phase": phase}
 
 
 # ── goal-rate helpers ────────────────────────────────────────────────────────
@@ -288,5 +301,27 @@ def fair_yes_v2(parsed, mu_home, mu_away, leg_is_home=True,
         if parsed["team"] is None:          # the "No Goal" leg
             return p_none
         return p_h if leg_is_home else p_a
+    # ── knockout progression (simple ELO model; ties split ~50/50 ET vs pens) ──
+    if typ in ("advance", "win_method", "decide_phase"):
+        p_h, p_t, p_a = result_probs(mh, ma, margin_so_far)
+        base = p_h + p_a
+        if typ == "advance":                # P(team wins reg) + P(draw)·P(team wins the tie)
+            w_h = (p_h / base) if base > 0 else 0.5
+            p_home_adv = p_h + p_t * w_h
+            return p_home_adv if leg_is_home else (1.0 - p_home_adv)
+        ph = parsed.get("phase")
+        if typ == "win_method":             # this team wins in reg / ET / pens
+            if ph == "reg":
+                return p_h if leg_is_home else p_a
+            if ph in ("et", "pen"):
+                w = ((p_h if leg_is_home else p_a) / base) if base > 0 else 0.5
+                return p_t * w * 0.5        # half of tie-wins settle in ET, half in pens
+            return None
+        if typ == "decide_phase":           # game decided in reg / ET / pens (either team)
+            if ph == "reg":
+                return p_h + p_a            # = 1 - p_tie (someone wins in regulation)
+            if ph in ("et", "pen"):
+                return p_t * 0.5
+            return None
     # winner(full), score, first_goalscorer -> not priced here
     return None
