@@ -273,6 +273,26 @@ def _member_open_exposure(cat, team, real_open):
     return exp
 
 
+def _event_open_exposure(real_open):
+    """$ cost-basis tied up PER GAME (event code) in still-open real positions, across
+    ALL agents — read from the real-order log. Enforces the per-game spend cap."""
+    path = os.path.join(paths.LOGS_DIR, "promote_v3.jsonl")
+    out = {}
+    if not os.path.exists(path):
+        return out
+    for line in open(path):
+        try:
+            r = json.loads(line)
+        except Exception:
+            continue
+        tk = r.get("ticker") or ""
+        if (r.get("mode") == "REAL-ORDERS" and r.get("act") == "BUY"
+                and "-" in tk and real_open.get(tk, 0) > 0):
+            ev = tk.split("-")[1]
+            out[ev] = out.get(ev, 0.0) + (r.get("cost", 0) or 0.0)
+    return out
+
+
 def _train_from_real(brains, client):
     """#9: close the loop — grade REAL predictions and re-tune each category's brain
     stacker weights from realized outcomes, so forward games keep updating the model.
@@ -354,6 +374,7 @@ def run(execute=False):
     state = _load(STATE, {"mirror": {}, "daily": {}})
     daily_spent = state["daily"].get(today, 0.0)
     daily_cap = master.get("daily_cap_dollars", 0.0)
+    per_game_cap = master.get("per_game_cap_dollars", 0.0)     # 0 = disabled
 
     # ONE real position read, shared by exits + entries; ABORT the cycle on failure
     # (acting on an unknown book risks double-buys / unmanaged exits).
@@ -395,6 +416,7 @@ def run(execute=False):
     # SHARED: daily_spent (the daily cap), real_open, depth_left. PER-CAT: fuse, max_open.
     s2c = _series_to_cat()
     depth_left = {}                                  # live ask depth, shared across cats
+    event_exp = _event_open_exposure(real_open) if real_entries else {}   # per-game spend so far
     # DUAL-FREQUENCY PER-GAME SCANNER: full ^KXWC surface, but only for NEAR games.
     # game_series() gives the ~24 game-level series (cached) so the fetch is cheap.
     # Selection: within the 48h horizon, LIVE games are scanned EVERY cycle (fast), and
@@ -490,6 +512,9 @@ def run(execute=False):
                     if real_entries and daily_cap and (daily_spent + cost) > daily_cap:
                         rows.append({"ts": ts, "cat": c, "act": "DAILY_CAP_HIT"})
                         continue
+                    if (real_entries and per_game_cap
+                            and event_exp.get(g["event"], 0.0) + cost > per_game_cap):
+                        continue                       # per-GAME spend cap (across all agents)
                     if real_entries:
                         ok, _, _ = client.buy(tk, n, ask, dry_run=False)
                         if ok:
@@ -501,6 +526,7 @@ def run(execute=False):
                         ev_seen.add(g["event"])
                         depth_left[tk] = depth - n          # deplete shared live depth
                         cycle_spent += cost; cat_open += 1; member_exp += cost
+                        event_exp[g["event"]] = event_exp.get(g["event"], 0.0) + cost
                         rows.append({"ts": ts, "mode": mode_str, "cat": c, "team": member["lineage"],
                                      "act": "BUY", "ticker": tk, "sub": lg["sub"], "n": n, "in_play": ip,
                                      "ask": ask, "edge": round(lg["p_fair"] - ask / 100.0, 3),
