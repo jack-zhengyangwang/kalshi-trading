@@ -1,4 +1,9 @@
-# ebk-personal — World Cup Kalshi Betting System
+# ⚠️ LEGACY — ebk-personal 4-Agent System (RETIRED)
+
+> **This doc describes the v1/v2 4-agent system (Trader/Brain/Keeper/Trainer). It has been replaced by the v3 unified-pool arena.**
+> See the root [CLAUDE.md](../CLAUDE.md) for the current system architecture and runbook.
+
+# ebk-personal — World Cup Kalshi Betting System (LEGACY)
 
 A personal, autonomous **4-agent** system that bets on FIFA World Cup games on
 Kalshi and manages the in-play exit. Separate from the fund (`ebk-intel`) — these

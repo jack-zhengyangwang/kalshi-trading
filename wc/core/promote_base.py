@@ -37,7 +37,7 @@ from wc.lib.paper import PaperAccount
 from wc.lib import kelly
 from wc.lib.exit_rules import decide_exit, disarm
 import wc.scanner as scn
-import wc.core.strategy_base as sv
+import wc.strategy as sv
 import wc.core.promotion as promo
 import wc.markets as mv
 

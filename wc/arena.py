@@ -380,17 +380,17 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
 
     client = A.KalshiClientV2(req_per_sec=5)
     names = {}
-    for m in client.list_markets_by_series("KXWCGAME", status="settled"):
+    for m in scn.iter_game_series(client, status="settled"):
         ec = m["ticker"].split("-")[1]
-        h, a = A.scn.home_away(m.get("title"))
+        h, a = scn.home_away(m.get("title"))
         if h:
             names[ec] = (h, a)
-    # series universe per pool — for "all" this is the WHOLE discovered KXWC surface
+    # series universe per pool — for "all" this is the WHOLE discovered Soccer surface
     # (no type allow-list: discover what was open, don't pick). Per-game leg-building
     # below naturally drops tournament outrights (their event codes don't match a
     # game timeline); the structural model prices what it can, the causal LLM the rest.
     cat_series = {c: A.scn.series_for(c, client) for c in REPLAY_CATS}
-    need = {"KXWCTOTAL"}
+    need = {"KXWCTOTAL", "KXWCCORNERS"}  # bootstrap — also discovered dynamically at read time
     for c in REPLAY_CATS:
         need |= set(cat_series[c])
     # MEMORY-BOUNDED fetch (the droplet is a 458MB box): pull each series ONE AT A
@@ -440,7 +440,7 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
         # market total anchor from this game's total legs (pre-game tape mids)
         mt = None
         tot_pts = []
-        for leg in settled.get("KXWCTOTAL", {}).get(ec, []):
+        for leg in scn.get_settled_total_legs(settled, ec):
             if not leg["ko"]:
                 continue
             b = _book(client, leg["ticker"], leg["ko"], books)
@@ -1018,7 +1018,7 @@ def forward_report():
 if __name__ == "__main__":
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
     if arg == "--once":
-        cycle_once()
+        from wc import cycle; cycle.run(execute=False)
     elif arg == "--status":
         status()
     elif arg == "--snapshot-seed":

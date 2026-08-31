@@ -417,15 +417,15 @@ def run(execute=False):
     s2c = _series_to_cat()
     depth_left = {}                                  # live ask depth, shared across cats
     event_exp = _event_open_exposure(real_open) if real_entries else {}   # per-game spend so far
-    # DUAL-FREQUENCY PER-GAME SCANNER: full ^KXWC surface, but only for NEAR games.
-    # game_series() gives the ~24 game-level series (cached) so the fetch is cheap.
+    # DUAL-FREQUENCY PER-GAME SCANNER: full Soccer surface, but only for NEAR games.
+    # game_series() gives the game-level series (cached) so the fetch is cheap.
     # Selection: within the 48h horizon, LIVE games are scanned EVERY cycle (fast), and
     # each PRE-GAME game is scanned once per day; far/idle games are skipped entirely.
     gseries = scn.game_series(client)
     sb_events = scn.lf.scoreboard_events()
     scanned = state.setdefault("pregame_scanned", {})
     targets = set()
-    for m in client.list_markets_by_series("KXWCGAME"):
+    for m in scn.iter_game_series(client):
         gc = scn.event_code(m["ticker"])
         if not gc or _event_tau_days(gc) > 2.0:      # 48h horizon
             continue
@@ -564,4 +564,4 @@ if __name__ == "__main__":
                 print(f"  {m['lineage']:<16} pre_fit={m['pre_fit']:+.3f} "
                       f"pre_pnl=${m['pre_pnl']:+.2f} ({m['pre_n']} bets) focus={m['focus'] or 'all'}")
     else:
-        run(execute=args.execute)
+        from wc import cycle; cycle.run(execute=args.execute)
