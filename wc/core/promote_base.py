@@ -28,8 +28,6 @@ import os
 from wc import paths
 import sys
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BASE)
 
 from wc.kalshi.client_ext import KalshiClientV2
 from wc.brain import BrainV2

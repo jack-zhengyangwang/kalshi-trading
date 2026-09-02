@@ -17,7 +17,6 @@ import time
 
 import requests
 
-BASE = os.path.dirname(os.path.abspath(__file__))
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT = str(os.environ.get("TELEGRAM_CHAT_ID", ""))
 API = f"https://api.telegram.org/bot{TOKEN}"

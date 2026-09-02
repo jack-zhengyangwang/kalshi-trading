@@ -11,7 +11,6 @@ import sys
 
 import wc.core.arena_base as A
 
-BASE = os.path.dirname(os.path.abspath(__file__))
 SEED_CATS = ["winner", "game_lines", "game_props"]
 
 

@@ -33,7 +33,6 @@ from wc.lib import kelly
 import wc.strategy as sv
 import wc.scanner as scn
 
-BASE = os.path.dirname(__file__)
 STATE = paths.STATE_V2
 TALLY = os.path.join(paths.LOGS_DIR, "arena_v2.jsonl")
 EVO_LOG = os.path.join(paths.LOGS_DIR, "evolution_v2.jsonl")

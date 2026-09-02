@@ -19,11 +19,9 @@ import re
 import sys
 
 from wc.kalshi.client_ext import KalshiClientV2
-from wc.brain import BrainV2
 from wc.lib import live_feed as lf
 import wc.markets as mv
 
-HERE = os.path.dirname(__file__)
 
 
 def _cfg(super_cat, client=None):
@@ -568,7 +566,8 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
 def scan(super_cat, max_events=3, min_edge=0.03, min_volume=100, min_ask_size=5):
     """CLI wrapper: price games then surface edges above threshold for display."""
     client = KalshiClientV2(req_per_sec=6)
-    brain = BrainV2()
+    from wc import brains as bl        # local: brains imports scanner, so not at module load
+    brain = bl.new()                   # per-league set, same routing as the live path
     out = []
     for ev in price_games(super_cat, client, brain, max_events, min_volume, min_ask_size):
         edges = []

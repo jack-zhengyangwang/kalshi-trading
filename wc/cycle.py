@@ -20,7 +20,7 @@ from wc.kalshi.client_ext import KalshiClientV2
 from wc.lib.paper import PaperAccount
 from wc.lib import kelly
 import wc.arena as a3
-import wc.brain as b2
+import wc.brains as bl
 import wc.markets as mv
 import wc.promote as promo
 import wc.scanner as scn
@@ -104,13 +104,12 @@ def _price_surface(client, brains, state, today, use_llm=False):
             targets.add(gc)                              # in-play → every cycle
         elif scanned.get(gc) != today:                   # pre-game → once per day
             targets.add(gc); scanned[gc] = today
-    # Use the best available brain. When executing with real money, enable LLM
-    # for the pricing brain (extra signal on top of structural model).
+    # v4: hand the whole per-league set to the scanner, which routes each game
+    # to its league brain via league_from_game_series(). When executing with real
+    # money, force the LLM leg on (extra signal on top of the structural model).
     if use_llm:
-        scan_brain = b2.BrainV2({"use_llm": True})
-    else:
-        scan_brain = brains.get("game_lines") or brains.get("winner") or next(iter(brains.values()))
-    all_games = (scn.price_games(None, client, scan_brain, max_events=len(targets) + 1,
+        bl.set_llm(brains, True)
+    all_games = (scn.price_games(None, client, brains, max_events=len(targets) + 1,
                                  live=True, series=gseries, only_games=targets)
                  if targets else [])
     # Apply WC base-rate totals prior so live pricing matches the replay
@@ -395,15 +394,12 @@ def run(execute=False):
     cycle = meta["cycle"] + 1
     rng = random.Random(90000 + cycle)
 
-    # ── load paper brains + teams ───────────────────────────────────────────
-    brains, teams_by_cat = {}, {}
+    # ── load paper brains (per LEAGUE, v4) + teams (per category) ───────────
+    # v3 kept one brain per category; v4 prices per league, so the brain set is
+    # keyed by league while the evolving team populations stay per category.
+    brains = bl.load(use_llm=bool(LLM_CATS))
+    teams_by_cat = {}
     for c in SEED_CATS:
-        bw = A._load(os.path.join(STATE_V3, f"brain_{c}.json"), None)
-        bconf = {"use_llm": c in LLM_CATS}
-        if bw:
-            bconf["stacker_weights"] = bw
-        bconf["llm_cache"] = A._load(os.path.join(STATE_V3, f"llm_cache_{c}.json"), {})
-        brains[c] = b2.BrainV2(bconf)
         t = A._load(os.path.join(STATE_V3, f"teams_{c}.json"), None)
         teams_by_cat[c] = t if t else a3.seed_population(c, next_id, rng)
 
@@ -500,8 +496,7 @@ def run(execute=False):
     # ── 6. PERSIST ─────────────────────────────────────────────────────────
     for c in SEED_CATS:
         A._save(os.path.join(STATE_V3, f"teams_{c}.json"), teams_by_cat[c])
-        A._save(os.path.join(STATE_V3, f"brain_{c}.json"), brains[c].weights)
-        A._save(os.path.join(STATE_V3, f"llm_cache_{c}.json"), brains[c].llm_cache)
+    bl.save(brains)
     meta.update({"cycle": cycle, "next_id": next_id[0], "generation": gens,
                  "resolved_since_evolve": rse})
     A._save(os.path.join(STATE_V3, "meta.json"), meta)

@@ -30,7 +30,6 @@ import re
 
 from wc.lib import market_data as m
 
-HERE = os.path.dirname(__file__)
 CORNERS_MODEL = paths.CORNERS_MODEL
 
 # Share of full-match goals scored in the 1st half (2nd halves run slightly higher).

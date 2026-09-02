@@ -31,6 +31,7 @@ from wc import paths
 import random
 import sys
 
+import wc.brains as bl
 import wc.core.arena_base as A
 import wc.match_sim as MS
 import wc.markets as mv
@@ -374,9 +375,7 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
     rng = random.Random(20260618)
     teams_by_cat = {c: seed_population(c, next_id, rng) for c in SEED_CATS}
 
-    brains = {}
-    for c in REPLAY_CATS:
-        brains[c] = A.BrainV2({"use_llm": use_llm and (c in LLM_CATS)})
+    brains = bl.new(use_llm=use_llm)
 
     client = A.KalshiClientV2(req_per_sec=5)
     names = {}
@@ -437,6 +436,17 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
                         continue
                     legs[cat].append((leg, parsed, book))
 
+        # v4: the game's league picks the brain that prices it — the same
+        # GAME-series signal scanner.price_games() routes on in the live path.
+        lg = "Other"
+        for _c in REPLAY_CATS:
+            for _s in cat_series[_c]:
+                if _s.endswith("GAME") and settled.get(_s, {}).get(ec):
+                    lg = scn.league_from_game_series(_s)
+                    break
+            if lg != "Other":
+                break
+
         # market total anchor from this game's total legs (pre-game tape mids)
         mt = None
         tot_pts = []
@@ -461,24 +471,24 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
                         m["title"] = leg.get("title") or f"{home} vs {away}"
                         m["yes_bid_cents"] = round((tt.price_at(book, -1) or 0.5) * 100)
                         novel.append(m)
-                brains[cat].prewarm_leg_llm(novel)
+                brains[lg].prewarm_leg_llm(novel)
 
         # ---- PRE-GAME ----
         for cat in REPLAY_CATS:
-            prior = brains[cat].game_prior(home, away, market_total=mt)
-            llm = brains[cat].llm_for_game(home, away, ec, prior) if use_llm else None
+            prior = brains[lg].game_prior(home, away, market_total=mt)
+            llm = brains[lg].llm_for_game(home, away, ec, prior) if use_llm else None
             for leg, parsed, book in legs[cat]:
                 mid = tt.price_at(book, -1)
                 if mid is None:
                     continue
                 lh = A.scn.leg_is_home(parsed, home, away)
-                lpf = (brains[cat].llm_pfair(parsed, prior, lh, llm, ticker=leg["ticker"])
+                lpf = (brains[lg].llm_pfair(parsed, prior, lh, llm, ticker=leg["ticker"])
                        if llm else None)
-                pf, src = brains[cat].pfair(parsed, prior, lh, market_mid=mid, llm=lpf)
+                pf, src = brains[lg].pfair(parsed, prior, lh, market_mid=mid, llm=lpf)
                 if pf is None and use_llm:        # no structural model -> causal LLM price
                     m2 = dict(leg); m2["title"] = leg.get("title") or f"{home} vs {away}"
                     m2["yes_bid_cents"] = round(mid * 100)
-                    pf, src = brains[cat].llm_price_market(m2, market_mid=mid)
+                    pf, src = brains[lg].llm_price_market(m2, market_mid=mid)
                 if pf is None:
                     continue
                 pf = _wc_total_pf(parsed, leg["sub"], pf)
@@ -489,22 +499,22 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
         for t_min in MS.STEPS:
             hs, as_ = MS.score_at(timeline, t_min)
             for cat in REPLAY_CATS:
-                lprior = brains[cat].live_prior(home, away, t_min, hs, as_, market_total=mt)
+                lprior = brains[lg].live_prior(home, away, t_min, hs, as_, market_total=mt)
                 # CAUSAL in-play LLM at this minute (score-throttled cache); never
                 # sees the result — only (teams, minute, score-so-far).
-                llm_live = (brains[cat].llm_live(home, away, ec, t_min, hs, as_)
+                llm_live = (brains[lg].llm_live(home, away, ec, t_min, hs, as_)
                             if use_llm else None)
                 for leg, parsed, book in legs[cat]:
                     lh = A.scn.leg_is_home(parsed, home, away)
                     mid = tt.price_at(book, t_min)
                     srcs = {}
-                    pdata = brains[cat].live_pfair(parsed, lprior, lh)
+                    pdata = brains[lg].live_pfair(parsed, lprior, lh)
                     if pdata is not None:
                         srcs["data"] = pdata
                     if mid is not None:
                         srcs["market"] = mid
                     if llm_live:
-                        lp2 = brains[cat].llm_live_pfair(parsed, lprior, lh, llm_live)
+                        lp2 = brains[lg].llm_live_pfair(parsed, lprior, lh, llm_live)
                         if lp2 is not None:
                             srcs["llm"] = lp2
                     # generic causal LLM for types with no structural live model
@@ -513,11 +523,11 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
                     if "data" not in srcs and "llm" not in srcs and use_llm:
                         m2 = dict(leg); m2["title"] = leg.get("title") or f"{home} vs {away}"
                         m2["yes_bid_cents"] = round((mid or 0) * 100)
-                        _, s2 = brains[cat].llm_price_market(m2, market_mid=mid)
+                        _, s2 = brains[lg].llm_price_market(m2, market_mid=mid)
                         srcs.update(s2)
                     if not srcs:
                         continue
-                    pf = brains[cat]._stack(srcs)
+                    pf = brains[lg]._stack(srcs)
                     if pf is None:
                         continue
                     if t_min < 90:
@@ -544,7 +554,7 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
                 t["account"] = acc.to_dict()
                 t["fitness"] = _fitness(t)
             if rb:
-                brains[cat].update_stacker(list(rb.values()))
+                bl.train(brains, [dict(r, ticker=tk) for tk, r in rb.items()])
 
         # ---- EVOLVE ----
         if cyc % EVOLVE_EVERY == 0:
@@ -559,8 +569,7 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
     if persist:                                  # in-memory only when False (re-grade
         for cat in SEED_CATS:                    #   runs that must NOT touch live state)
             A._save(os.path.join(STATE_V3, f"teams_{cat}.json"), teams_by_cat[cat])
-        for cat in REPLAY_CATS:                  # tuned stacker weights for the live path
-            A._save(os.path.join(STATE_V3, f"brain_{cat}.json"), brains[cat].weights)
+        bl.save(brains)                          # tuned stacker weights for the live path
         if evo_rows:                             # seed the evolution track from the replay
             os.makedirs(os.path.dirname(EVO_LOG_V3), exist_ok=True)
             with open(EVO_LOG_V3, "w") as f:
@@ -787,7 +796,9 @@ def _settle_live(client, teams_by_cat, brains, cycle):
             t["account"] = acc.to_dict()
             t["fitness"] = _fitness(t)
         if rb:
-            brains[cat].update_stacker(list(rb.values()))
+            # v4: brains are keyed by league, so a settled bet trains the brain
+            # that priced it — resolved via its ticker's series prefix.
+            bl.train(brains, [dict(r, ticker=tk) for tk, r in rb.items()])
         events_by_cat[cat] = len(ev)
     return n_settled, events_by_cat
 
@@ -805,18 +816,11 @@ def cycle_once():
     cycle = meta["cycle"] + 1
     rng = random.Random(90000 + cycle)
 
-    brains, teams_by_cat = {}, {}
+    # v4: brains per LEAGUE (with the persisted per-league LLM cache, so a market
+    # is LLM-priced at most once); the evolving team populations stay per category.
+    brains = bl.load(use_llm=bool(LLM_CATS))
+    teams_by_cat = {}
     for c in SEED_CATS:
-        bw = A._load(os.path.join(STATE_V3, f"brain_{c}.json"), None)
-        # LLM on only for the wild 'discovered' bucket (no structural model there);
-        # curated cats stay model+market for comparable forward samples + no key dep.
-        bconf = {"use_llm": c in LLM_CATS}
-        if bw:
-            bconf["stacker_weights"] = bw
-        # persist the per-ticker LLM cache so a discovered market is LLM-priced at
-        # most once (cost control), not every cycle.
-        bconf["llm_cache"] = A._load(os.path.join(STATE_V3, f"llm_cache_{c}.json"), {})
-        brains[c] = A.BrainV2(bconf)
         t = A._load(os.path.join(STATE_V3, f"teams_{c}.json"), None)
         teams_by_cat[c] = t if t else seed_population(c, next_id, rng)
 
@@ -829,7 +833,7 @@ def cycle_once():
     games_by_cat = {}
     for c in SEED_CATS:
         try:
-            gs = A.scn.price_games(c, client, brains[c], max_events=6, live=True)
+            gs = A.scn.price_games(c, client, brains, max_events=6, live=True)
             _base_rate_legs(gs)
             games_by_cat[c] = gs
         except Exception as e:
@@ -868,8 +872,7 @@ def cycle_once():
 
     for c in SEED_CATS:
         A._save(os.path.join(STATE_V3, f"teams_{c}.json"), teams_by_cat[c])
-        A._save(os.path.join(STATE_V3, f"brain_{c}.json"), brains[c].weights)
-        A._save(os.path.join(STATE_V3, f"llm_cache_{c}.json"), brains[c].llm_cache)
+    bl.save(brains)
     meta.update({"cycle": cycle, "next_id": next_id[0], "generation": gens,
                  "resolved_since_evolve": rse})
     A._save(os.path.join(STATE_V3, "meta.json"), meta)

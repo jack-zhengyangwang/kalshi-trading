@@ -12,7 +12,6 @@ from wc import paths
 
 import wc.core.arena_base as A
 
-BASE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load(p, d):
