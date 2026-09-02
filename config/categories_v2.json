@@ -1,5 +1,5 @@
 {
-  "_doc": "Arena v2 super-category -> Kalshi series map (authoritative, 2026-06-16). Player Props stubbed empty; Events experimental.",
+  "_doc": "Arena v3 super-category -> suffix patterns. Suffixes are matched against the END of every discovered Soccer series ticker, so new leagues (EPL, UCL, La Liga, etc.) are automatically included without config changes.",
   "starting_cash": 200.0,
   "llm_cadence": {
     "_doc": "Design 2: LLM gives per-game priors + may override select legs. Calls restricted to: pregame (priors+overrides), halftime (exit review + 2H reprice), on_demand (material in-play events). Gated by use_llm.",
@@ -10,34 +10,33 @@
   },
   "super_categories": {
     "winner": {
-      "series": ["KXWCGAME"],
+      "suffixes": ["GAME"],
       "use_llm": true,
       "active": true,
-      "_note": "match winner (home/draw/away) — most-traded + most-validated; its own brain, assistant, and evolving teams; the lead promotion candidate."
+      "_note": "match winner (home/draw/away) — any league. Most-traded + most-validated; the lead promotion candidate."
     },
     "game_lines": {
-      "series": ["KXWCSPREAD", "KXWCTOTAL", "KXWCTEAMTOTAL", "KXWCBTTS",
-                 "KXWC1H", "KXWC1HTOTAL", "KXWC1HSPREAD", "KXWC1HBTTS",
-                 "KXWC2H", "KXWC2HTOTAL", "KXWC2HSPREAD", "KXWC2HBTTS"],
+      "suffixes": ["SPREAD", "TOTAL", "TEAMTOTAL", "BTTS",
+                   "1H", "1HTOTAL", "1HSPREAD", "1HBTTS",
+                   "2H", "2HTOTAL", "2HSPREAD", "2HBTTS"],
       "use_llm": true,
       "active": true,
-      "_note": "spread/totals/team-totals/BTTS + 1H + 2H (winner split out into its own category)."
+      "_note": "spread/totals/team-totals/BTTS + 1H + 2H — all leagues. Winner split out into its own category."
     },
     "game_props": {
-      "series": ["KXWCSCORE", "KXWC1HSCORE", "KXWCCORNERS", "KXWCTCORNERS", "KXWCFTTS"],
+      "suffixes": ["SCORE", "1HSCORE", "CORNERS", "TCORNERS", "FTTS", "TTSF"],
       "use_llm": true,
       "active": true,
-      "_note": "correct score included as an evolving team; culled by fitness if no edge."
+      "_note": "correct score + corners + first-to-score — all leagues. Culled by fitness if no edge."
     },
-    "events": {
-      "series": ["KXWCKOPENALTIES", "KXWCWINNERTRAIL", "KXWCFREEKICKGOAL", "KXWCOLIMPICO"],
+    "knockout": {
+      "suffixes": ["ADVANCE", "MOV", "MOF"],
       "use_llm": true,
-      "active": false,
-      "_note": "experimental — own LLM+base-rate brain, no Poisson model."
+      "active": true,
+      "_note": "advance/win-method/decide-phase — tournament progression markets. Only active during knockout stages."
     },
     "player_props": {
-      "series": ["KXWCAST", "KXWCSOG", "KXWCSHOT", "KXWCSAVE", "KXWCHATTRICK",
-                 "KXWCFIRSTGOAL", "KXWCTEAMFIRSTGOAL"],
+      "suffixes": ["FIRSTGOAL", "AST", "SOG", "SHOT", "SAVE", "HATTRICK"],
       "use_llm": true,
       "active": false,
       "_note": "stubbed — needs a player data source + per-player model."

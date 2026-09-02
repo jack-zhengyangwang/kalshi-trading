@@ -26,3 +26,9 @@ venv/
 
 # ── os ──
 .DS_Store
+
+# ── local editor/agent settings (machine-specific paths, ssh probes) ──
+.claude/
+
+# ── archived training data (large; fetch scripts in v3_archive/models/) ──
+v3_archive/models/*.csv

@@ -22,7 +22,6 @@ import re
 import statistics
 import unicodedata
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = paths.MODELS_DIR
 MODEL_PKL = os.path.join(MODELS_DIR, "model.pkl")
 TEAM_ELO_JSON = os.path.join(MODELS_DIR, "team_elo.json")

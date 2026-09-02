@@ -11,7 +11,6 @@ import sys
 
 import wc.core.arena_base as A
 
-BASE = os.path.dirname(os.path.abspath(__file__))
 SEED_CATS = ["winner", "game_lines", "game_props"]
 
 
@@ -23,7 +22,11 @@ def _short(s, n):
 def _leg(tk):
     """Readable leg from a ticker: SERIES-EVENT-OUTCOME -> 'TOTAL:OVER25'."""
     p = (tk or "").split("-")
-    return _short("%s:%s" % (p[0].replace("KXWC", ""), p[-1] if len(p) > 2 else "?"), 18)
+    # Strip any KX... league prefix for display (e.g. KXEPLGAME -> EPL:GAME)
+    prefix = p[0]
+    if prefix.startswith("KX") and len(prefix) > 2:
+        prefix = prefix[2:]
+    return _short("%s:%s" % (prefix, p[-1] if len(p) > 2 else "?"), 18)
 
 
 def investigate_real(who):

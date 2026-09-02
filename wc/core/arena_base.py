@@ -30,10 +30,9 @@ from wc.kalshi.client_ext import KalshiClientV2
 from wc.brain import BrainV2
 from wc.lib.paper import PaperAccount
 from wc.lib import kelly
-import wc.core.strategy_base as sv
+import wc.strategy as sv
 import wc.scanner as scn
 
-BASE = os.path.dirname(__file__)
 STATE = paths.STATE_V2
 TALLY = os.path.join(paths.LOGS_DIR, "arena_v2.jsonl")
 EVO_LOG = os.path.join(paths.LOGS_DIR, "evolution_v2.jsonl")

@@ -30,39 +30,60 @@ import re
 
 from wc.lib import market_data as m
 
-HERE = os.path.dirname(__file__)
 CORNERS_MODEL = paths.CORNERS_MODEL
 
 # Share of full-match goals scored in the 1st half (2nd halves run slightly higher).
 # Empirical ~0.45-0.46 across major leagues; refine in Phase 2 from data.
 HALF_GOAL_FRACTION = 0.46
 
-# series prefix -> (leg type, period). Period "1H"/"2H" => that half only.
-SERIES_SPEC = {
-    "KXWCGAME":      ("winner", "full"),
-    "KXWCSPREAD":    ("spread", "full"),
-    "KXWCTOTAL":     ("total", "full"),
-    "KXWCTEAMTOTAL": ("team_total", "full"),
-    "KXWCBTTS":      ("btts", "full"),
-    "KXWCSCORE":     ("score", "full"),
-    "KXWCCORNERS":   ("corners", "full"),
-    "KXWCTCORNERS":  ("team_corners", "full"),
-    "KXWCFTTS":      ("first_to_score", "full"),
-    "KXWCTTSF":      ("first_to_score", "full"),   # alt ticker (currently dormant)
-    "KXWC1H":        ("winner", "1H"),
-    "KXWC1HTOTAL":   ("total", "1H"),
-    "KXWC1HSPREAD":  ("spread", "1H"),
-    "KXWC1HBTTS":    ("btts", "1H"),
-    "KXWC1HSCORE":   ("score", "1H"),
-    "KXWC2H":        ("winner", "2H"),
-    "KXWC2HTOTAL":   ("total", "2H"),
-    "KXWC2HSPREAD":  ("spread", "2H"),
-    "KXWC2HBTTS":    ("btts", "2H"),
-    "KXWCFIRSTGOAL": ("first_goalscorer", "full"),
-    "KXWCADVANCE":   ("advance", "full"),        # "USA advances" (knockout progression)
-    "KXWCMOV":       ("win_method", "full"),     # "USA to win in Regulation/ET/Penalties"
-    "KXWCMOF":       ("decide_phase", "full"),   # "Either team advances in Reg/ET/Pen"
-}
+# SUFFIX -> (leg type, period). Matched against the END of the series ticker prefix.
+# Order matters: longer suffixes are checked first (e.g. 1HTOTAL before TOTAL).
+# This works for ANY soccer league: KXEPLGAME, KXUCLTOTAL, KXLALIGA1H, etc.
+_SUFFIX_SPEC = [
+    # 1H variants (longer, checked first)
+    ("1HSPREAD",   ("spread", "1H")),
+    ("1HTOTAL",    ("total", "1H")),
+    ("1HBTTS",     ("btts", "1H")),
+    ("1HSCORE",    ("score", "1H")),
+    # 2H variants
+    ("2HSPREAD",   ("spread", "2H")),
+    ("2HTOTAL",    ("total", "2H")),
+    ("2HBTTS",     ("btts", "2H")),
+    # team variants
+    ("TEAMTOTAL",  ("team_total", "full")),
+    ("TCORNERS",   ("team_corners", "full")),
+    # full-match base types
+    ("GAME",       ("winner", "full")),
+    ("SPREAD",     ("spread", "full")),
+    ("TOTAL",      ("total", "full")),
+    ("BTTS",       ("btts", "full")),
+    ("SCORE",      ("score", "full")),
+    ("CORNERS",    ("corners", "full")),
+    ("FTTS",       ("first_to_score", "full")),
+    ("TTSF",       ("first_to_score", "full")),   # alt ticker (currently dormant)
+    ("1H",         ("winner", "1H")),
+    ("2H",         ("winner", "2H")),
+    ("FIRSTGOAL",  ("first_goalscorer", "full")),
+    ("ADVANCE",    ("advance", "full")),
+    ("MOV",        ("win_method", "full")),
+    ("MOF",        ("decide_phase", "full")),
+]
+
+# Fast lookup cache: series_prefix -> (type, period)
+_SERIES_CACHE = {}
+
+
+def _classify_series(series_prefix):
+    """Map any soccer series prefix (e.g. KXEPL1HTOTAL, KXWCGAME) to (type, period)
+    by suffix matching. Result is cached for the lifetime of the process."""
+    if series_prefix in _SERIES_CACHE:
+        return _SERIES_CACHE[series_prefix]
+    for suffix, spec in _SUFFIX_SPEC:
+        if series_prefix.endswith(suffix):
+            _SERIES_CACHE[series_prefix] = spec
+            return spec
+    _SERIES_CACHE[series_prefix] = ("unknown", "full")
+    return ("unknown", "full")
 
 _OVER_RE = re.compile(r"over\s+(\d+(?:\.\d+)?)", re.I)          # "over 2.5 goals"
 _ATLEAST_RE = re.compile(r"(\d+)\+\s*corners", re.I)           # "9+ corners" (total)
@@ -92,7 +113,7 @@ def parse_market_v2(ticker, sub_title):
     """
     series = (ticker or "").split("-")[0].upper()
     sub = sub_title or ""
-    typ, period = SERIES_SPEC.get(series, ("unknown", "full"))
+    typ, period = _classify_series(series)
 
     line = None
     mo = _OVER_RE.search(sub)

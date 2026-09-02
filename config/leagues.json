@@ -1,0 +1,27 @@
+{
+  "_doc": "v4 per-league calibration. base_goals_per_side replaces the old hardcoded _BASE_GOALS=1.35 from market_data.py. Sensible defaults from public soccer stats; the Brain Assistant retunes stacker weights from actual outcomes.",
+  "EPL": {
+    "name": "Premier League",
+    "base_goals_per_side": 1.42
+  },
+  "LaLiga": {
+    "name": "La Liga",
+    "base_goals_per_side": 1.25
+  },
+  "SerieA": {
+    "name": "Serie A",
+    "base_goals_per_side": 1.30
+  },
+  "Bundesliga": {
+    "name": "Bundesliga",
+    "base_goals_per_side": 1.45
+  },
+  "Ligue1": {
+    "name": "Ligue 1",
+    "base_goals_per_side": 1.35
+  },
+  "Other": {
+    "name": "Club Soccer",
+    "base_goals_per_side": 1.35
+  }
+}

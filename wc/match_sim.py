@@ -32,7 +32,7 @@ import wc.core.arena_base as A
 from wc.lib.paper import PaperAccount
 from wc.lib import live_feed as lf, kelly
 from wc.lib.exit_rules import decide_exit, disarm
-import wc.core.strategy_base as sv
+import wc.strategy as sv
 import wc.markets as mv
 
 STEPS = [0, 15, 30, 45, 60, 75, 90]     # in-play minutes; 45 = halftime (LLM re-query)
@@ -168,12 +168,12 @@ def simulate(max_games=None, seed=0, report=True, llm_shared=None):
         names, settled = _DATA_CACHE["names"], _DATA_CACHE["settled"]
     else:
         names = {}
-        for m in client.list_markets_by_series("KXWCGAME", status="settled"):
+        for m in A.scn.iter_game_series(client, status="settled"):
             ec = m["ticker"].split("-")[1]
             h, a = A.scn.home_away(m.get("title"))
             if h:
                 names[ec] = (h, a)
-        need = set(A.scn.CONTEXT_SERIES)
+        need = set(A.scn._context_series())
         for c in cats:
             need |= set(cfg[c]["series"])
         settled = {s: A._settled_by_event(client, s) for s in need}
@@ -192,8 +192,8 @@ def simulate(max_games=None, seed=0, report=True, llm_shared=None):
         timeline = goal_timeline(home, away, yyyymmdd)
         # market anchors (pre-game candlestick mids)
         qc = {}
-        mt = _anchor(client, settled, "KXWCTOTAL", ec, qc)
-        cmean = _anchor(client, settled, "KXWCCORNERS", ec, qc, corners=True)
+        mt = _anchor_multi(client, settled, scn._is_full_total_series, ec, qc)
+        cmean = _anchor_multi(client, settled, scn._is_full_corner_series, ec, qc, corners=True)
 
         # collect this game's legs we will simulate (skip corners/unknown)
         legs = {}        # cat -> [(leg, parsed, ko, series_dict)]
@@ -316,6 +316,27 @@ def _anchor(client, settled, series, ec, qc, corners=False):
         b, a = A._candle_quote(client, series, leg["ticker"], leg["ko"], qc)
         if b is not None and a is not None:
             pts.append((leg, (b + a) / 2))
+    if not pts:
+        return None
+    if corners:
+        if len(pts) < 3:
+            return None
+        mn = min(int(mv.parse_market_v2(l["ticker"], l["sub"])["threshold"] or 99) for l, _ in pts)
+        return (mn - 1) + sum(p for _, p in pts)
+    return sum(p for _, p in pts) or None
+
+
+def _anchor_multi(client, settled, series_filter_fn, ec, qc, corners=False):
+    """Like _anchor but aggregates legs across ALL series matching series_filter_fn.
+    E.g. series_filter_fn=scn._is_full_total_series aggregates KXEPLTOTAL, KXUCLTOTAL, etc."""
+    pts = []
+    for series in settled:
+        if not series_filter_fn(series):
+            continue
+        for leg in settled[series].get(ec, []):
+            b, a = A._candle_quote(client, series, leg["ticker"], leg["ko"], qc)
+            if b is not None and a is not None:
+                pts.append((leg, (b + a) / 2))
     if not pts:
         return None
     if corners:

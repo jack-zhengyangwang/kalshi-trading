@@ -12,6 +12,7 @@ import json
 import os
 from wc import paths
 
+BASE = os.path.dirname(os.path.abspath(__file__))
 STATE = paths.STATE_V2
 
 MIN_PROMOTE_N = 10       # min resolved bets before a team is eligible

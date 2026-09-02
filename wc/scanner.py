@@ -19,27 +19,40 @@ import re
 import sys
 
 from wc.kalshi.client_ext import KalshiClientV2
-from wc.brain import BrainV2
 from wc.lib import live_feed as lf
 import wc.markets as mv
 
-HERE = os.path.dirname(__file__)
 
 
-def _cfg(super_cat):
+def _cfg(super_cat, client=None):
+    """Resolve a curated category's suffix patterns against discovered Soccer series.
+    Falls back to raw suffixes if no client/discovery available (bootstrap)."""
     cfg = json.load(open(paths.CATS_FILE))
-    return cfg["super_categories"][super_cat]["series"]
+    cat = cfg["super_categories"][super_cat]
+    suffixes = cat.get("suffixes", cat.get("series", []))
+    if not suffixes:
+        return []
+    all_ser = discover_soccer_series(client) if client else []
+    if not all_ser:
+        return list(suffixes)  # bootstrap: return suffixes as-is
+    result = []
+    for s in all_ser:
+        for suffix in suffixes:
+            if s.endswith(suffix):
+                result.append(s)
+                break
+    return sorted(result)
 
 
-_SERIES_CACHE = os.path.join(paths.STATE_V3, "kxwc_series_cache.json")
-_KXWC_RE = re.compile(r"^KXWC")
+_SERIES_CACHE = os.path.join(paths.STATE_V3, "soccer_series_cache.json")
+_SOCCER_TAG = "Soccer"
 
 
-def discover_kxwc_series(client, ttl=3600, refresh=False, now=None):
-    """SCAN THE WILD: every open World Cup series Kalshi lists, found by the KXWC
-    prefix — no hardcoded menu, no picker. New knockout/outright markets show up
-    automatically the moment Kalshi opens them. Cached `ttl` seconds (the full
-    Sports catalog is large) in arena_v3_state/kxwc_series_cache.json.
+def discover_soccer_series(client, ttl=3600, refresh=False, now=None):
+    """SCAN THE WILD: every open Soccer series Kalshi lists, found by the 'Soccer'
+    tag — no hardcoded menu, no picker. New leagues/markets show up automatically
+    the moment Kalshi opens them. Cached `ttl` seconds (the full Sports catalog is
+    large) in arena_v3_state/soccer_series_cache.json.
 
     `now` lets callers pass a timestamp (tests / replay); defaults to time.time()."""
     import time as _t
@@ -56,11 +69,14 @@ def discover_kxwc_series(client, ttl=3600, refresh=False, now=None):
         d = client._get("/series", {"category": "Sports"})
         for s in (d.get("series") or d.get("series_list") or []):
             t = s.get("ticker", "")
-            if _KXWC_RE.match(t):
+            tags = s.get("tags") or []
+            if _SOCCER_TAG in tags:
                 found.append(t)
     except Exception as e:
         print("[discover] /series catalog failed:", e)
     found = sorted(set(found))
+    # cache context series alongside the series list
+    _find_and_cache_context_series(found)
     try:
         os.makedirs(os.path.dirname(_SERIES_CACHE), exist_ok=True)
         json.dump({"ts": now, "series": found}, open(_SERIES_CACHE, "w"))
@@ -69,40 +85,61 @@ def discover_kxwc_series(client, ttl=3600, refresh=False, now=None):
     return found
 
 
-def _all_curated_series():
-    cfg = json.load(open(paths.CATS_FILE))["super_categories"]
-    s = set()
-    for v in cfg.values():
-        s |= set(v.get("series", []))
-    return s
-
-
 def series_for(super_cat, client=None, refresh=False):
-    """Series universe to PRICE for a super-category. Curated cats return their
-    configured series (proven, validated). The 'discovered' bucket returns every
-    open KXWC series NOT already claimed by a curated cat — the wild surface, found
-    by regex (discover_kxwc_series), no hardcoded list. This is how new
-    knockout/outright markets get scanned the moment Kalshi opens them."""
+    """Series universe to PRICE for a super-category.
+
+    - 'all': the ENTIRE live Soccer surface (every discovered series).
+    - Curated cats (winner, game_lines, etc.): resolve their suffix patterns
+      against discovered series — any league matching the suffixes is included.
+    - 'discovered': every open Soccer series NOT matched by any curated category.
+    """
     if super_cat == "all":
-        # the unified pool: the ENTIRE live KXWC surface (curated + everything else)
-        return discover_kxwc_series(client, refresh=refresh) if client is not None else []
+        return discover_soccer_series(client, refresh=refresh) if client is not None else []
     if super_cat != "discovered":
-        return _cfg(super_cat)
+        return _cfg(super_cat, client)
     if client is None:
         return []
-    found = discover_kxwc_series(client, refresh=refresh)
-    skip = _all_curated_series() | set(CONTEXT_SERIES)
+    found = discover_soccer_series(client, refresh=refresh)
+    # Build the set of series claimed by curated categories
+    curated = set()
+    cfg = json.load(open(paths.CATS_FILE))
+    for cat_name, cat_def in cfg["super_categories"].items():
+        suffixes = cat_def.get("suffixes", cat_def.get("series", []))
+        for s in found:
+            for suffix in suffixes:
+                if s.endswith(suffix):
+                    curated.add(s)
+                    break
+    skip = curated | set(_context_series())
     return [s for s in found if s not in skip]
 
 
-_GAME_SERIES_CACHE = os.path.join(paths.STATE_V3, "kxwc_game_series_cache.json")
+def _all_curated_suffixes():
+    """Return all suffixes used by any curated category."""
+    cfg = json.load(open(paths.CATS_FILE))
+    suffixes = set()
+    for cat_def in cfg["super_categories"].values():
+        for s in cat_def.get("suffixes", cat_def.get("series", [])):
+            suffixes.add(s)
+    return suffixes
+
+
+def _find_game_series(all_series):
+    """Return the first series ending in 'GAME' from a list of ticker prefixes."""
+    for s in all_series:
+        if s.endswith("GAME"):
+            return s
+    return None
+
+
+_GAME_SERIES_CACHE = os.path.join(paths.STATE_V3, "soccer_game_series_cache.json")
 _GAMECODE_RE = re.compile(r"^\d{2}[A-Z]{3}\d{2}[A-Z]{4,}$")
 
 
 def game_series(client, ttl=43200, refresh=False, now=None):
-    """Cached list of GAME-LEVEL KXWC series — those with per-game events (winner,
+    """Cached list of GAME-LEVEL Soccer series — those with per-game events (winner,
     spread, total, corners, ADVANCE, goalscorer, ...). Lets the per-game scanner fetch
-    only these (~24) instead of all ~110 series. Discovered by probing each discovered
+    only these (~30) instead of all ~150+ series. Discovered by probing each discovered
     series for an event on the soonest game; cached `ttl` seconds (refresh occasionally
     so new market types are picked up). Falls back to the full discovered set if empty."""
     import time as _t
@@ -114,13 +151,15 @@ def game_series(client, ttl=43200, refresh=False, now=None):
                 return c["series"]
         except Exception:
             pass
-    allser = discover_kxwc_series(client)
+    allser = discover_soccer_series(client)
     sample = None
-    for m in client.list_markets_by_series("KXWCGAME"):
-        ec = event_code(m["ticker"])
-        if ec and _GAMECODE_RE.match(ec):
-            sample = ec
-            break
+    game_ser = _find_game_series(allser)
+    if game_ser:
+        for m in client.list_markets_by_series(game_ser):
+            ec = event_code(m["ticker"])
+            if ec and _GAMECODE_RE.match(ec):
+                sample = ec
+                break
     game_lvl = []
     if sample:
         for s in allser:
@@ -143,6 +182,58 @@ def game_series(client, ttl=43200, refresh=False, now=None):
 def event_code(ticker):
     parts = ticker.split("-")
     return parts[1] if len(parts) > 1 else None
+
+
+def iter_game_series(client, status=None):
+    """Iterate over ALL game-level soccer series, yielding markets from each.
+    Replaces the old hardcoded list_markets_by_series('KXWCGAME')."""
+    all_ser = discover_soccer_series(client)
+    for s in all_ser:
+        if s.endswith("GAME"):
+            try:
+                yield from client.list_markets_by_series(s, status=status)
+            except Exception:
+                pass
+
+
+def iter_total_series(client, status=None):
+    """Iterate over ALL full-match total-goals soccer series. Yields markets."""
+    all_ser = discover_soccer_series(client)
+    for s in all_ser:
+        if _is_full_total_series(s):
+            try:
+                yield from client.list_markets_by_series(s, status=status)
+            except Exception:
+                pass
+
+
+def iter_corner_series(client, status=None):
+    """Iterate over ALL full-match corner soccer series. Yields markets."""
+    all_ser = discover_soccer_series(client)
+    for s in all_ser:
+        if _is_full_corner_series(s):
+            try:
+                yield from client.list_markets_by_series(s, status=status)
+            except Exception:
+                pass
+
+
+def get_settled_total_legs(settled, ec):
+    """Aggregate settled total-goals legs across ALL leagues for event ec."""
+    out = []
+    for s in settled:
+        if _is_full_total_series(s):
+            out.extend(settled[s].get(ec, []))
+    return out
+
+
+def get_settled_corner_legs(settled, ec):
+    """Aggregate settled corner legs across ALL leagues for event ec."""
+    out = []
+    for s in settled:
+        if _is_full_corner_series(s):
+            out.extend(settled[s].get(ec, []))
+    return out
 
 
 def home_away(title):
@@ -173,11 +264,29 @@ def mid(client, m):
     return None
 
 
+def _series_of(m):
+    """Return the series prefix of a market ticker."""
+    return m["ticker"].split("-")[0]
+
+
+def _is_full_total_series(prefix):
+    """True if this is a full-match total-goals series (e.g. KXEPLTOTAL, KXWCTOTAL)
+    but NOT a team-total, 1H, or 2H variant."""
+    return (prefix.endswith("TOTAL") and "TEAM" not in prefix
+            and "1H" not in prefix and "2H" not in prefix)
+
+
+def _is_full_corner_series(prefix):
+    """True if this is a full-match corner series (e.g. KXWCCORNERS, KXEPLCORNERS)
+    but NOT a team-corners variant."""
+    return prefix.endswith("CORNERS") and "TCORNERS" not in prefix
+
+
 def implied_total(client, legs, min_vol=0):
-    """E[total goals] = sum over (liquid) KXWCTOTAL legs of P(over k.5) mid."""
+    """E[total goals] = sum over (liquid) *TOTAL legs of P(over k.5) mid."""
     s, n = 0.0, 0
     for m in legs:
-        if m["ticker"].split("-")[0] == "KXWCTOTAL":
+        if _is_full_total_series(_series_of(m)):
             if client.liquidity(m)["volume"] < min_vol:
                 continue
             p = mid(client, m)
@@ -193,7 +302,7 @@ def implied_corner_mean(client, legs, min_vol=0):
     since thin corner books gave unreliable anchors (e.g. 6.7 vs base 10)."""
     pts = []
     for m in legs:
-        if m["ticker"].split("-")[0] == "KXWCCORNERS":
+        if _is_full_corner_series(_series_of(m)):
             if client.liquidity(m)["volume"] < min_vol:
                 continue
             parsed = mv.parse_market_v2(m["ticker"], m.get("yes_sub_title"))
@@ -222,9 +331,47 @@ def leg_is_home(parsed, home, away):
     return True
 
 
-# Always fetched for metadata/anchoring even if not in the scanned category:
-# KXWCGAME -> home/away names; KXWCTOTAL -> goal-total anchor; KXWCCORNERS -> corner mean.
-CONTEXT_SERIES = ["KXWCGAME", "KXWCTOTAL", "KXWCCORNERS"]
+# Context series dynamically discovered from the soccer series set.
+# *GAME -> home/away names; *TOTAL -> goal-total anchor; *CORNERS -> corner mean.
+def _context_series():
+    """Return the canonical GAME, TOTAL, and CORNERS series for the current surface.
+    Cached in the series cache alongside discovered series."""
+    try:
+        c = json.load(open(_SERIES_CACHE))
+        ctx = c.get("context_series")
+        if ctx:
+            return ctx
+    except Exception:
+        pass
+    return ["KXWCGAME", "KXWCTOTAL", "KXWCCORNERS"]  # fallback for bootstrap
+
+
+def _find_and_cache_context_series(all_series):
+    """Given all discovered soccer series, find the GAME/TOTAL/CORNERS series and
+    cache them alongside the series list."""
+    game_ser = total_ser = corners_ser = None
+    for s in all_series:
+        if game_ser is None and s.endswith("GAME"):
+            game_ser = s
+        if total_ser is None and _is_full_total_series(s):
+            total_ser = s
+        if corners_ser is None and _is_full_corner_series(s):
+            corners_ser = s
+        if game_ser and total_ser and corners_ser:
+            break
+    ctx = [game_ser, total_ser, corners_ser]
+    ctx = [c for c in ctx if c is not None]  # drop Nones if any weren't found
+    if len(ctx) < 3:
+        # Not enough series discovered yet; keep fallback
+        ctx = ["KXWCGAME", "KXWCTOTAL", "KXWCCORNERS"]
+    # Cache alongside series
+    try:
+        existing = json.load(open(_SERIES_CACHE))
+        existing["context_series"] = ctx
+        json.dump(existing, open(_SERIES_CACHE, "w"))
+    except Exception:
+        pass
+    return ctx
 
 
 _MON = {"JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
@@ -241,6 +388,22 @@ def _event_when(ec):
     return (int(m.group(1)), _MON.get(m.group(2), 99), int(m.group(3)))
 
 
+# ── v4 league routing ──────────────────────────────────────────────────────────
+
+def league_from_game_series(series_ticker):
+    """Map a Kalshi GAME-series ticker to a v4 league key.
+    KXEPLGAME -> EPL, KXLALIGAGAME -> LaLiga, etc. Unknown -> 'Other'."""
+    LEAGUE_MAP = {
+        "KXEPLGAME": "EPL",
+        "KXLALIGAGAME": "LaLiga",
+        "KXSERIEAGAME": "SerieA",
+        "KXBUNDESLIGAGAME": "Bundesliga",
+        "KXBLGAME": "Bundesliga",
+        "KXLIGUE1GAME": "Ligue1",
+    }
+    return LEAGUE_MAP.get(series_ticker, "Other")
+
+
 def price_games(super_cat, client, brain, max_events=3, min_volume=100,
                 min_ask_size=5, live=False, series=None, only_games=None, llm_cap=30):
     """Price EVERY tradeable leg of the soonest `max_events` games in a category.
@@ -255,17 +418,21 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
     for a per-game full-surface scan). `only_games` (set of event codes) restricts
     pricing to those games — used by the per-game dual-frequency scanner."""
     series = series if series is not None else series_for(super_cat, client)
-    fetch = list(dict.fromkeys(series + CONTEXT_SERIES))
+    ctx_series = _context_series()
+    fetch = list(dict.fromkeys(series + ctx_series))
     by_series = {s: client.list_markets_by_series(s) for s in fetch}
     sb_events = lf.scoreboard_events() if live else []
 
-    # event -> home/away from the winner series
+    # event -> home/away from ANY game-level series (not just KXWCGAME)
     events = {}
-    for m in by_series.get("KXWCGAME", []):
-        ec = event_code(m["ticker"])
-        h, a = home_away(m.get("title"))
-        if ec and h:
-            events[ec] = {"home": h, "away": a}
+    for ser_name, mks in by_series.items():
+        if not ser_name.endswith("GAME"):
+            continue
+        for m in mks:
+            ec = event_code(m["ticker"])
+            h, a = home_away(m.get("title"))
+            if ec and h:
+                events.setdefault(ec, {"home": h, "away": a})
 
     # legs to PRICE = only the scanned category's series; context legs used for anchor
     cat_set = set(series)
@@ -287,30 +454,44 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
         in_play = bool(st and st.get("status") == "in")
         return (not in_play, _event_when(ec), ec)
 
+    # v4: support per-league brains. If a single brain is passed, wrap it so
+    # the old single-brain API still works unchanged.
+    brains = brain if isinstance(brain, dict) else {"_default": brain}
+    # event -> league: find which GAME series each event lives in
+    ev_league = {}
+    for ser_name, mks in by_series.items():
+        if not ser_name.endswith("GAME"):
+            continue
+        league = league_from_game_series(ser_name)
+        for m in mks:
+            ec = event_code(m["ticker"])
+            if ec and ec not in ev_league:
+                ev_league[ec] = league
+
     results = []
     llm_n = 0                                   # per-scan LLM-call budget (see llm_cap)
     _cands = [e for e in legs_by_event if e in events
               and (only_games is None or e in only_games)]
     for ec in sorted(_cands, key=_order_key)[:max_events]:
+        # v4 league routing: use the per-league brain for this game
+        brain = brains.get(ev_league.get(ec, "Other"), brains.get("_default"))
+        if brain is None:
+            continue
         info = events[ec]
         home, away = info["home"], info["away"]
         legs = legs_by_event[ec]
         ctx = ctx_by_event.get(ec, legs)
         mt = implied_total(client, ctx, min_vol=min_volume)
-        mc = implied_corner_mean(client, ctx, min_vol=min_volume)
-        prior = brain.game_prior(home, away, market_total=mt, market_corner_total=mc)
+        prior = brain.game_prior(home, away, market_total=mt)
         # live state (in-play re-pricing)
         state = lf.state_from_events(sb_events, home, away) if live else None
         in_play = bool(state and state.get("status") == "in")
-        lprior = corners_so_far = minute = None
+        lprior = minute = None
         if in_play:
             minute = state.get("minute") or 0
             stats = lf.get_game_stats(home, away)
-            corners_so_far = ((stats["home"]["corners"] + stats["away"]["corners"])
-                              if stats else 0)
             lprior = brain.live_prior(home, away, minute, state["home_score"],
-                                      state["away_score"], stats=stats, market_total=mt,
-                                      market_corner_total=mc)
+                                      state["away_score"], stats=stats, market_total=mt)
         # one LLM call per game (cached): pre-game priors, or a halftime re-estimate
         use_llm = getattr(brain, "use_llm", False)
         llm_data = brain.llm_for_game(home, away, ec, prior) if (use_llm and not in_play) else None
@@ -320,12 +501,12 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
                   if (use_llm and in_play) else None)
         ev = {"event": ec, "home": home, "away": away, "in_play": in_play,
               "market_total": mt, "model_mu": round(prior["mu_home"] + prior["mu_away"], 2),
-              "corner_mean": round(mc, 1) if mc else None,
               "elo_known": prior["elo_known"], "legs": []}
         for m in legs:
             parsed = mv.parse_market_v2(m["ticker"], m.get("yes_sub_title"))
-            if parsed["type"] == "first_goalscorer":
-                continue                       # no model + noisy book; skip
+            # v4 winner-only: skip all non-winner market types
+            if parsed["type"] != "winner":
+                continue
             unknown = parsed["type"] == "unknown"
             liq = client.liquidity(m)
             if liq["volume"] < min_volume or liq["ask_size"] < min_ask_size:
@@ -348,14 +529,14 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
                     llm_n += 1
                 src = "llm"
             elif in_play:
-                pdata = brain.live_pfair(parsed, lprior, lh, corners_so_far)
+                pdata = brain.live_pfair(parsed, lprior, lh)
                 if pdata is None:
-                    continue                   # half-period / score legs: skip live
+                    continue                   # non-winner / half-period: skip live
                 sources = {"data": pdata}
                 if mkt is not None:
                     sources["market"] = mkt
                 if llm_ht:                     # halftime LLM re-estimate
-                    lpf = brain.llm_live_pfair(parsed, lprior, lh, llm_ht, corners_so_far)
+                    lpf = brain.llm_live_pfair(parsed, lprior, lh, llm_ht)
                     if lpf is not None:
                         sources["llm"] = lpf
                 p = brain._stack(sources)
@@ -385,7 +566,8 @@ def price_games(super_cat, client, brain, max_events=3, min_volume=100,
 def scan(super_cat, max_events=3, min_edge=0.03, min_volume=100, min_ask_size=5):
     """CLI wrapper: price games then surface edges above threshold for display."""
     client = KalshiClientV2(req_per_sec=6)
-    brain = BrainV2()
+    from wc import brains as bl        # local: brains imports scanner, so not at module load
+    brain = bl.new()                   # per-league set, same routing as the live path
     out = []
     for ev in price_games(super_cat, client, brain, max_events, min_volume, min_ask_size):
         edges = []
@@ -401,9 +583,9 @@ def scan(super_cat, max_events=3, min_edge=0.03, min_volume=100, min_ask_size=5)
 
 if __name__ == "__main__":
     if "--discover" in sys.argv:
-        # SCAN THE WILD: list every open KXWC series + its open-market count.
+        # SCAN THE WILD: list every open Soccer series + its open-market count.
         cl = KalshiClientV2(req_per_sec=4)
-        ser = discover_kxwc_series(cl, refresh=True)
+        ser = discover_soccer_series(cl, refresh=True)
         known = set()
         try:
             cfg = json.load(open(paths.CATS_FILE))
@@ -411,7 +593,7 @@ if __name__ == "__main__":
                 known |= set(sc.get("series", []))
         except Exception:
             pass
-        print(f"discovered {len(ser)} open KXWC series (regex ^KXWC); "
+        print(f"discovered {len(ser)} open Soccer series (tag='Soccer'); "
               f"{len(known)} are in the old hardcoded menu\n")
         tot = 0
         for s in ser:
@@ -420,7 +602,7 @@ if __name__ == "__main__":
             tag = "" if s in known else "  <-- NEW (was invisible)"
             if n:
                 print(f"  {s:<24} {n:4d} open{tag}")
-        print(f"\nTOTAL open markets across the wild: {tot}")
+        print(f"\nTOTAL open markets across all soccer: {tot}")
         sys.exit(0)
     cat = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "game_lines"
     me = int(next((a.split("=")[1] for a in sys.argv if a.startswith("--events=")), "3"))

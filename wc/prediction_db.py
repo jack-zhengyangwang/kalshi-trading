@@ -20,7 +20,6 @@ import os
 from wc import paths
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 PRED_LOG = os.path.join(paths.LOGS_DIR, "predictions.jsonl")
 GRADED_LOG = os.path.join(paths.LOGS_DIR, "predictions_graded.jsonl")
 

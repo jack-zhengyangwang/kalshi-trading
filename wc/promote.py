@@ -33,13 +33,11 @@ import os
 from wc import paths
 import sys
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BASE)
 
 from wc.kalshi.client_ext import KalshiClientV2
-from wc.brain import BrainV2
 from wc.lib.paper import PaperAccount
 from wc.lib import kelly
+import wc.brains as bl
 import wc.scanner as scn
 import wc.strategy as s3
 import wc.markets as mv
@@ -100,18 +98,6 @@ def _log(rows):
 
 ARMED_CATS = ["winner", "game_lines"]    # categories this promoter can arm (game_props
                                          # excluded — its pre-game forward P&L is negative)
-
-
-def _brain(cat):
-    """Tuned stacker weights + LIVE LLM pricing. The LLM is stacked as an extra source
-    on top of the validated structural model (it augments, doesn't replace it), priced
-    in real time per RECAP ('LLM belongs live'). Model: claude-haiku-4-5 (cheap/fast for
-    frequent cycles; override via config 'claude_model'). Per-category."""
-    bw = _load(os.path.join(a3.STATE_V3, f"brain_{cat}.json"), None)
-    bconf = {"use_llm": True}
-    if bw:
-        bconf["stacker_weights"] = bw
-    return BrainV2(bconf)
 
 
 def select(cat, n, allow_insample=False, window="pregame"):
@@ -224,9 +210,12 @@ def manage_exits(client, sb, state, manage_real, params_by_cat, brains, rows, ts
             home, away = ha
             stt = scn.lf.state_from_events(sb_events, home, away)
             if stt and stt.get("status") == "in":
-                lp = brains[cat].live_prior(home, away, stt.get("minute") or 0,
-                                            stt["home_score"], stt["away_score"])
-                live_fair = brains[cat].live_pfair(parsed, lp, scn.leg_is_home(parsed, home, away))
+                # v4: brains are keyed by league — resolve from the held ticker,
+                # not the agent's category, or this KeyErrors on every exit sweep.
+                br = brains[bl.league_for_ticker(tk)]
+                lp = br.live_prior(home, away, stt.get("minute") or 0,
+                                   stt["home_score"], stt["away_score"])
+                live_fair = br.live_pfair(parsed, lp, scn.leg_is_home(parsed, home, away))
         flags = state.setdefault("flags", {}).setdefault(tk, {})
         if kill_flat:
             action, frac = "KILL_FLATTEN", 1.0
@@ -273,6 +262,26 @@ def _member_open_exposure(cat, team, real_open):
     return exp
 
 
+def _event_open_exposure(real_open):
+    """$ cost-basis tied up PER GAME (event code) in still-open real positions, across
+    ALL agents — read from the real-order log. Enforces the per-game spend cap."""
+    path = os.path.join(paths.LOGS_DIR, "promote_v3.jsonl")
+    out = {}
+    if not os.path.exists(path):
+        return out
+    for line in open(path):
+        try:
+            r = json.loads(line)
+        except Exception:
+            continue
+        tk = r.get("ticker") or ""
+        if (r.get("mode") == "REAL-ORDERS" and r.get("act") == "BUY"
+                and "-" in tk and real_open.get(tk, 0) > 0):
+            ev = tk.split("-")[1]
+            out[ev] = out.get(ev, 0.0) + (r.get("cost", 0) or 0.0)
+    return out
+
+
 def _train_from_real(brains, client):
     """#9: close the loop — grade REAL predictions and re-tune each category's brain
     stacker weights from realized outcomes, so forward games keep updating the model.
@@ -282,22 +291,21 @@ def _train_from_real(brains, client):
     except Exception as e:
         print(f"  [train] grade skipped: {e}")
         return
-    src_by_tk, cat_by_tk = {}, {}               # join graded outcome -> prediction's source blend
+    src_by_tk = {}                              # join graded outcome -> prediction's source blend
     for p in pdb._read(pdb.PRED_LOG):
         tk = p.get("ticker")
         if tk and p.get("sources"):
-            src_by_tk[tk] = p["sources"]; cat_by_tk[tk] = p.get("cat")
-    by_cat = {}
+            src_by_tk[tk] = p["sources"]
+    rows = []
     for g in pdb._read(pdb.GRADED_LOG):
-        tk = g.get("ticker"); s = src_by_tk.get(tk); cat = cat_by_tk.get(tk)
-        if s and cat in brains and g.get("outcome") is not None:
-            by_cat.setdefault(cat, []).append({"sources": s, "outcome": g["outcome"]})
-    for cat, resolved in by_cat.items():
-        old = dict(brains[cat].weights)
-        neww = brains[cat].update_stacker(resolved)   # in-place; no-op < min_sample
-        if neww != old:
-            _save(os.path.join(a3.STATE_V3, f"brain_{cat}.json"), neww)
-            print(f"  [train] {cat}: stacker re-tuned from {len(resolved)} real outcomes -> {neww}")
+        tk = g.get("ticker"); s = src_by_tk.get(tk)
+        if s and g.get("outcome") is not None:
+            rows.append({"ticker": tk, "sources": s, "outcome": g["outcome"]})
+    changed = bl.train(brains, rows)                # grouped by league; no-op < min_sample
+    if changed:
+        bl.save(brains)
+        for lg, w in changed.items():
+            print(f"  [train] {lg}: stacker re-tuned from real outcomes -> {w}")
 
 
 def run(execute=False):
@@ -322,9 +330,9 @@ def run(execute=False):
     cats = [c for c in ARMED_CATS if sb["slots"].get(c, {}).get("mode", "off") != "off"]
     print(f"[live_promote_v3] {mode_str}  ({ts}; LA-day {today})  cats={cats}"
           + ("  [OVERRIDE: in-sample gate]" if ovr else ""))
-    members_by_cat, brains, params_by_cat = {}, {}, {}
+    members_by_cat, params_by_cat = {}, {}
+    brains = bl.load(use_llm=True)
     for c in cats:
-        brains[c] = _brain(c)
         n_ens = max(1, int(sb["slots"][c].get("ensemble", 1)))
         # UNIFIED-POOL SELECTION: pick agents by their WINDOW record ACROSS ALL categories
         # (cat=None), not per-category — else a category the pool never bet pre-game (e.g.
@@ -354,6 +362,7 @@ def run(execute=False):
     state = _load(STATE, {"mirror": {}, "daily": {}})
     daily_spent = state["daily"].get(today, 0.0)
     daily_cap = master.get("daily_cap_dollars", 0.0)
+    per_game_cap = master.get("per_game_cap_dollars", 0.0)     # 0 = disabled
 
     # ONE real position read, shared by exits + entries; ABORT the cycle on failure
     # (acting on an unknown book risks double-buys / unmanaged exits).
@@ -395,15 +404,16 @@ def run(execute=False):
     # SHARED: daily_spent (the daily cap), real_open, depth_left. PER-CAT: fuse, max_open.
     s2c = _series_to_cat()
     depth_left = {}                                  # live ask depth, shared across cats
-    # DUAL-FREQUENCY PER-GAME SCANNER: full ^KXWC surface, but only for NEAR games.
-    # game_series() gives the ~24 game-level series (cached) so the fetch is cheap.
+    event_exp = _event_open_exposure(real_open) if real_entries else {}   # per-game spend so far
+    # DUAL-FREQUENCY PER-GAME SCANNER: full Soccer surface, but only for NEAR games.
+    # game_series() gives the game-level series (cached) so the fetch is cheap.
     # Selection: within the 48h horizon, LIVE games are scanned EVERY cycle (fast), and
     # each PRE-GAME game is scanned once per day; far/idle games are skipped entirely.
     gseries = scn.game_series(client)
     sb_events = scn.lf.scoreboard_events()
     scanned = state.setdefault("pregame_scanned", {})
     targets = set()
-    for m in client.list_markets_by_series("KXWCGAME"):
+    for m in scn.iter_game_series(client):
         gc = scn.event_code(m["ticker"])
         if not gc or _event_tau_days(gc) > 2.0:      # 48h horizon
             continue
@@ -413,8 +423,7 @@ def run(execute=False):
             targets.add(gc)                          # in-play → scan every cycle
         elif scanned.get(gc) != today:               # pre-game → once per day
             targets.add(gc); scanned[gc] = today
-    scan_brain = brains.get("winner") or brains.get("game_lines") or next(iter(brains.values()))
-    all_games = (scn.price_games(None, client, scan_brain, max_events=len(targets) + 1,
+    all_games = (scn.price_games(None, client, brains, max_events=len(targets) + 1,
                                  live=True, series=gseries, only_games=targets)
                  if targets else [])
     _apply_base_rate(sum((g["legs"] for g in all_games), []))
@@ -490,6 +499,9 @@ def run(execute=False):
                     if real_entries and daily_cap and (daily_spent + cost) > daily_cap:
                         rows.append({"ts": ts, "cat": c, "act": "DAILY_CAP_HIT"})
                         continue
+                    if (real_entries and per_game_cap
+                            and event_exp.get(g["event"], 0.0) + cost > per_game_cap):
+                        continue                       # per-GAME spend cap (across all agents)
                     if real_entries:
                         ok, _, _ = client.buy(tk, n, ask, dry_run=False)
                         if ok:
@@ -501,6 +513,7 @@ def run(execute=False):
                         ev_seen.add(g["event"])
                         depth_left[tk] = depth - n          # deplete shared live depth
                         cycle_spent += cost; cat_open += 1; member_exp += cost
+                        event_exp[g["event"]] = event_exp.get(g["event"], 0.0) + cost
                         rows.append({"ts": ts, "mode": mode_str, "cat": c, "team": member["lineage"],
                                      "act": "BUY", "ticker": tk, "sub": lg["sub"], "n": n, "in_play": ip,
                                      "ask": ask, "edge": round(lg["p_fair"] - ask / 100.0, 3),
@@ -538,4 +551,4 @@ if __name__ == "__main__":
                 print(f"  {m['lineage']:<16} pre_fit={m['pre_fit']:+.3f} "
                       f"pre_pnl=${m['pre_pnl']:+.2f} ({m['pre_n']} bets) focus={m['focus'] or 'all'}")
     else:
-        run(execute=args.execute)
+        from wc import cycle; cycle.run(execute=args.execute)
