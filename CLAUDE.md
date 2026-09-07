@@ -14,7 +14,7 @@ The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-
 
 ### Money
 
-**DISARMED, AND NOTHING IS DEPLOYED.** The droplet was wiped 2026-09-07; no code runs anywhere. `config/switchboard_v3.json` → `master.armed = false`, `master.kill = true`. No real orders can be placed. A real order requires `armed && --execute && !kill` (`wc/cycle.py:382`).
+**DISARMED AND IDLE.** Deployed to `/root/kalshi-trading` 2026-09-07 and verified, but **no cron is installed**, so nothing runs on a schedule and no orders can be placed. `config/switchboard_v3.json` → `master.armed = false`, `master.kill = true`. No real orders can be placed. A real order requires `armed && --execute && !kill` (`wc/cycle.py:382`).
 
 ### Git / backup status
 
@@ -45,7 +45,7 @@ The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-
 | 5 | ~~Doc drift~~ → **mostly FIXED 2026-09-07** | Repo name and paths corrected; README rewritten for all-soccer; `ARCHITECTURE.md`, `DEPLOY.md`, `SETUP.md`, `ADDING_AN_AGENT.md` written. **Still open:** `RECAP.md` commands predate the `wc/` layout; `docs/DEPLOY_CLOUD.md` says `/opt/ebk-personal`; `edges/discover.sh` referenced but absent. |
 | 6 | **Two gates on the droplet, not three** | `scripts/run_promote.sh` hardcodes `--execute`, so in cron the only live gates are `master.armed` and `master.kill`. The "three independent switches" claim below holds only for manual invocation. |
 | 7 | **Double-run risk** | `arena.py --once` and `promote.py` both delegate into `wc/cycle.py`. Running both cron scripts concurrently runs the paper arena twice. |
-| 8 | ~~Droplet stale + unversioned~~ → **WIPED 2026-09-07** | `/root/WorldCupTrading` and `/root/ebk-personal` deleted, crontab removed, nothing running. Everything rescued first to `~/dev/droplet-backup-2026-09-07` (12M: full code tarball, `guard.py`, RSA key, droplet switchboard, graded predictions, models, brain state, old crontab). Droplet is a clean Ubuntu box awaiting a fresh bootstrap — see `DEPLOY.md`. |
+| 8 | ~~Droplet stale + unversioned~~ → **WIPED 2026-09-07** | `/root/WorldCupTrading` and `/root/ebk-personal` deleted, crontab removed, nothing running. Everything rescued first to `~/dev/droplet-backup-2026-09-07` (12M: full code tarball, `guard.py`, RSA key, droplet switchboard, graded predictions, models, brain state, old crontab). Rebuilt clean 2026-09-07 at `/root/kalshi-trading` from `Dev`: venv + deps, secrets in place, 109 tests pass, scanner authenticates and discovers 1404 soccer series. **No cron installed — the system is idle by design.** Disarmed (`armed=false`, `kill=true`). |
 | 9 | ~~`guard.py` WC-end stop fires unconditionally~~ → **FIXED 2026-09-07** | `WC_END_UTC = 2026-07-20` was hardcoded, so from Jul 20 onward `guard.py` tripped the kill switch every 4 min — this is why the droplet was found `armed=false, kill=true`. Limits now read from `switchboard_v3.json` `"guard"`: `max_loss_dollars` (200.0) and `stop_after_utc` (null = no date stop). |
 
 ### Evidence quality reminder

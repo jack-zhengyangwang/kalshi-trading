@@ -3,8 +3,10 @@
 The droplet is a plain Ubuntu box. There is no container and no orchestration:
 deploying is an `rsync` plus a cron install.
 
-**Current state (2026-09-07): the droplet is empty.** It was wiped for a clean
-rebuild. Nothing is deployed and nothing is trading.
+**Current state (2026-09-07): deployed and verified, but idle.** The code, venv,
+and secrets are in place at `/root/kalshi-trading` and the scanner authenticates
+against live Kalshi. **No cron is installed**, so nothing runs on a schedule.
+Install cron (below) when you want the system live.
 
 ## Target
 
