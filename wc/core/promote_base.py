@@ -33,6 +33,7 @@ from wc.kalshi.client_ext import KalshiClientV2
 from wc.brain import BrainV2
 from wc.lib.paper import PaperAccount
 from wc.lib import kelly
+from wc.lib.caps import check_caps
 from wc.lib.exit_rules import decide_exit, disarm
 import wc.scanner as scn
 import wc.strategy as sv
@@ -241,7 +242,12 @@ def run(execute=False):
     client = KalshiClientV2(req_per_sec=4)
     state = _load(STATE, {"mirror": {}, "daily": {}})
     daily_spent = state["daily"].get(today, 0.0)
-    daily_cap = master.get("daily_cap_dollars", 0.0)
+    # Safety cap fails closed — see wc/lib/caps.py.
+    caps, cap_missing = check_caps(master, ["daily_cap_dollars"])
+    daily_cap = caps["daily_cap_dollars"]
+    if real_mode and cap_missing:
+        print(f"  [ABORT] unusable safety cap(s): {cap_missing} — no real entries.")
+        return
 
     # real open positions (once), to avoid double-entry and to manage exits
     real_open = {}
@@ -322,7 +328,7 @@ def run(execute=False):
                     cost = n * ask / 100.0
                     if cycle_spent + cost > fuse:
                         continue
-                    if real_mode and daily_cap and (daily_spent + cost) > daily_cap:
+                    if real_mode and (daily_spent + cost) > daily_cap:
                         rows.append({"ts": ts, "mode": mode_str, "cat": cat, "act": "DAILY_CAP_HIT"})
                         continue
                     if real_mode:

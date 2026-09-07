@@ -19,6 +19,7 @@ from wc import paths
 from wc.kalshi.client_ext import KalshiClientV2
 from wc.lib.paper import PaperAccount
 from wc.lib import kelly
+from wc.lib.caps import check_caps, read_cap
 import wc.arena as a3
 import wc.brains as bl
 import wc.markets as mv
@@ -231,7 +232,15 @@ def _enter_real(client, sb, state, all_games, brains, real_open, daily_spent,
     if not all_games:
         return [], daily_spent
     master = sb["master"]
-    per_game_cap = master.get("per_game_cap_dollars", 0.0)
+    # Safety caps fail closed — refuse real orders rather than run uncapped.
+    caps, missing = check_caps(master, ["per_game_cap_dollars", "daily_cap_dollars"])
+    per_game_cap, daily_cap = caps["per_game_cap_dollars"], caps["daily_cap_dollars"]
+    if real_open and missing:
+        return [{"ts": ts, "act": "CONFIG_ERROR", "reason": "unusable safety cap",
+                 "keys": missing,
+                 "note": "real entries refused; set a positive cap in switchboard master"}], \
+            daily_spent
+
     s2c = promo._series_to_cat()
     ovr = bool(master.get("override_forward_gate", False))
     rows = []
@@ -324,10 +333,10 @@ def _enter_real(client, sb, state, all_games, brains, real_open, daily_spent,
                         continue
                     if cycle_spent + cost > fuse:
                         continue
-                    if real_open and daily_cap and (daily_spent + cost) > daily_cap:
+                    if real_open and (daily_spent + cost) > daily_cap:
                         rows.append({"ts": ts, "cat": c, "act": "DAILY_CAP_HIT"})
                         continue
-                    if (real_open and per_game_cap
+                    if (real_open
                             and event_exp.get(g["event"], 0.0) + cost > per_game_cap):
                         continue
                     if real_open:
@@ -409,7 +418,8 @@ def run(execute=False):
     pstate = _load(PROMOTE_STATE, {"mirror": {}, "daily": {}, "flags": {},
                                    "pregame_scanned": {}})
     daily_spent = pstate["daily"].get(today, 0.0)
-    daily_cap = master.get("daily_cap_dollars", 0.0)
+    # validated in _enter_real (fails closed); read here only for the spend log
+    daily_cap, _ = read_cap(master, "daily_cap_dollars")
 
     # ── real position read (once) ──────────────────────────────────────────
     real_open = {}

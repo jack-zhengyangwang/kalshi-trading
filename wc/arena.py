@@ -32,6 +32,7 @@ import random
 import sys
 
 import wc.brains as bl
+from wc.brain_v4 import LEAGUES
 import wc.core.arena_base as A
 import wc.match_sim as MS
 import wc.markets as mv
@@ -96,10 +97,17 @@ CAT_TYPES = {
             "corners", "team_corners", "score", "first_to_score"},
 }
 
-# WC group-stage base rates for total goals (Over X.5 -> P). The YouTube research
-# edge: markets chronically under-price low totals. Blended toward (logit) pre-game.
-WC_OVER_BASE = {0.5: 0.97, 1.5: 0.85, 2.5: 0.58, 3.5: 0.33, 4.5: 0.16, 5.5: 0.08}
-WC_BASE_WEIGHT = 0.25
+# Base-rate prior for total-goals legs, blended toward p_fair in logit space.
+# Rates are PER LEAGUE and live in config/leagues.json, e.g.
+#     "EPL": {"total_over_base": {"2.5": 0.54}, "total_base_weight": 0.25}
+# A league with no `total_over_base` gets NO adjustment — that is the default.
+#
+# 2026-09-07: this was hardcoded to 2026 World Cup group-stage rates
+# (WC_OVER_BASE = {0.5:0.97, 1.5:0.85, 2.5:0.58, ...}, weight 0.25) and applied
+# to every league. v4 has no World Cup league at all, so those priors were wrong
+# everywhere they fired. Rather than guess replacements, the prior is now opt-in:
+# measure a league's real over rates, put them in leagues.json, then it applies.
+DEFAULT_TOTAL_BASE_WEIGHT = 0.25
 
 
 # ── population ────────────────────────────────────────────────────────────────
@@ -173,10 +181,11 @@ def _evo_fitness(t):
 
 # ── WC base-rate totals prior ──────────────────────────────────────────────────
 
-def _wc_total_pf(parsed, leg_sub, pf):
-    """Blend a pre-game total leg's p_fair toward the WC base rate (logit space).
-    Returns the (possibly) adjusted p_fair. No-op for non-total / unparseable."""
-    # ONLY full-game totals — the WC_OVER_BASE rates are full-match; applying them
+def _total_base_pf(parsed, leg_sub, pf, league=None):
+    """Blend a pre-game total leg's p_fair toward its league's base rate (logit
+    space). Returns the (possibly) adjusted p_fair. No-op for non-total legs,
+    unparseable thresholds, or any league without configured `total_over_base`."""
+    # ONLY full-game totals — the base rates are full-match; applying them
     # to 1H/2H totals massively over-priced first-half overs (the −$25 forward bleed).
     if parsed.get("type") != "total" or parsed.get("period") != "full" or pf is None:
         return pf
@@ -187,16 +196,22 @@ def _wc_total_pf(parsed, leg_sub, pf):
         thr = float(m.group(1)) if m else None
     if thr is None:
         return pf
-    base_over = WC_OVER_BASE.get(round(float(thr) * 2) / 2)
+    cfg = (LEAGUES.get(league) or {}) if league else {}
+    over_base = cfg.get("total_over_base") or {}
+    if not over_base:
+        return pf                                     # league has no measured rates
+    key = round(float(thr) * 2) / 2
+    base_over = over_base.get(str(key), over_base.get(key))
     if base_over is None:
         return pf
+    weight = float(cfg.get("total_base_weight", DEFAULT_TOTAL_BASE_WEIGHT))
     is_over = "over" in (leg_sub or "").lower()
     base = base_over if is_over else (1 - base_over)
     base = min(0.98, max(0.02, base))
     p = min(0.98, max(0.02, pf))
-    lg = (1 - WC_BASE_WEIGHT) * math.log(p / (1 - p)) + \
-        WC_BASE_WEIGHT * math.log(base / (1 - base))
-    return 1 / (1 + math.exp(-lg))
+    blended = (1 - weight) * math.log(p / (1 - p)) + \
+        weight * math.log(base / (1 - base))
+    return 1 / (1 + math.exp(-blended))
 
 
 # ── trade-tape pricing + fills ─────────────────────────────────────────────────
@@ -491,7 +506,7 @@ def simulate(max_games=None, use_llm=False, report=True, persist=True):
                     pf, src = brains[lg].llm_price_market(m2, market_mid=mid)
                 if pf is None:
                     continue
-                pf = _wc_total_pf(parsed, leg["sub"], pf)
+                pf = _total_base_pf(parsed, leg["sub"], pf, league=lg)
                 _enter(teams_by_cat[cat], cat, leg["ticker"], parsed, leg["sub"], pf, src,
                        book, -1, ec, in_play=False, fillstat=fillstat)
 
@@ -653,7 +668,7 @@ EVO_LOG_V3 = os.path.join(paths.LOGS_DIR, "evolution_v3.jsonl")
 
 
 def _base_rate_legs(games):
-    """Apply the WC base-rate totals prior to every total leg, in place."""
+    """Apply each league's base-rate totals prior to every total leg, in place."""
     for g in games:
         for lg in g["legs"]:
             parsed = mv.parse_market_v2(lg["ticker"], lg.get("sub"))
@@ -662,7 +677,8 @@ def _base_rate_legs(games):
             # base-rate prior is a PRE-GAME prior only; applying it in-play double-
             # counts (the live model already saw the score) and fabricated late edges.
             if parsed.get("type") == "total" and not lg.get("in_play"):
-                lg["p_fair"] = _wc_total_pf(parsed, lg.get("sub"), lg["p_fair"])
+                lg["p_fair"] = _total_base_pf(parsed, lg.get("sub"), lg["p_fair"],
+                                              league=bl.league_for_ticker(lg["ticker"]))
 
 
 def _enter_live(teams_by_cat, games_by_cat):

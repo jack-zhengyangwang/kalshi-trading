@@ -1,5 +1,5 @@
 {
-  "_doc": "v4 per-league calibration. base_goals_per_side replaces the old hardcoded _BASE_GOALS=1.35 from market_data.py. Sensible defaults from public soccer stats; the Brain Assistant retunes stacker weights from actual outcomes.",
+  "_doc": "v4 per-league calibration. base_goals_per_side replaces the old hardcoded _BASE_GOALS=1.35 from market_data.py. Sensible defaults from public soccer stats; the Brain Assistant retunes stacker weights from actual outcomes. Optional per-league totals prior: `total_over_base` ({\"2.5\": 0.54, ...}, measured Over X.5 rates) and `total_base_weight` (0-1, default 0.25). Absent `total_over_base` = no totals adjustment, which is the default for every league until real rates are measured.",
   "EPL": {
     "name": "Premier League",
     "base_goals_per_side": 1.42
@@ -10,7 +10,7 @@
   },
   "SerieA": {
     "name": "Serie A",
-    "base_goals_per_side": 1.30
+    "base_goals_per_side": 1.3
   },
   "Bundesliga": {
     "name": "Bundesliga",

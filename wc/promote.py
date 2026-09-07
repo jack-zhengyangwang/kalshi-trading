@@ -37,6 +37,7 @@ import sys
 from wc.kalshi.client_ext import KalshiClientV2
 from wc.lib.paper import PaperAccount
 from wc.lib import kelly
+from wc.lib.caps import check_caps
 import wc.brains as bl
 import wc.scanner as scn
 import wc.strategy as s3
@@ -143,13 +144,14 @@ def select(cat, n, allow_insample=False, window="pregame"):
 
 
 def _apply_base_rate(legs):
-    """Re-apply the WC base-rate totals prior so live p_fair matches the replay."""
+    """Re-apply the league base-rate totals prior so live p_fair matches the replay."""
     for lg in legs:
         parsed = mv.parse_market_v2(lg["ticker"], lg.get("sub"))
         lg["_type"] = parsed.get("type")
         lg["_period"] = parsed.get("period")
         if parsed.get("type") == "total" and not lg.get("in_play"):
-            lg["p_fair"] = a3._wc_total_pf(parsed, lg.get("sub"), lg["p_fair"])
+            lg["p_fair"] = a3._total_base_pf(parsed, lg.get("sub"), lg["p_fair"],
+                                             league=bl.league_for_ticker(lg["ticker"]))
 
 
 def manage_exits(client, sb, state, manage_real, params_by_cat, brains, rows, ts):
@@ -361,8 +363,14 @@ def run(execute=False):
     client = KalshiClientV2(req_per_sec=4)
     state = _load(STATE, {"mirror": {}, "daily": {}})
     daily_spent = state["daily"].get(today, 0.0)
-    daily_cap = master.get("daily_cap_dollars", 0.0)
-    per_game_cap = master.get("per_game_cap_dollars", 0.0)     # 0 = disabled
+    # Safety caps fail closed: a missing/zero cap refuses real orders (never
+    # runs uncapped). See wc/lib/caps.py.
+    caps, cap_missing = check_caps(master, ["daily_cap_dollars", "per_game_cap_dollars"])
+    daily_cap, per_game_cap = caps["daily_cap_dollars"], caps["per_game_cap_dollars"]
+    if executing and cap_missing:
+        print(f"  [ABORT] unusable safety cap(s): {cap_missing} — no real entries. "
+              f"Set a positive value in switchboard master.")
+        return
 
     # ONE real position read, shared by exits + entries; ABORT the cycle on failure
     # (acting on an unknown book risks double-buys / unmanaged exits).
@@ -496,10 +504,10 @@ def run(execute=False):
                         continue                       # per-bot $100 total-exposure cap
                     if cycle_spent + cost > fuse:
                         continue
-                    if real_entries and daily_cap and (daily_spent + cost) > daily_cap:
+                    if real_entries and (daily_spent + cost) > daily_cap:
                         rows.append({"ts": ts, "cat": c, "act": "DAILY_CAP_HIT"})
                         continue
-                    if (real_entries and per_game_cap
+                    if (real_entries
                             and event_exp.get(g["event"], 0.0) + cost > per_game_cap):
                         continue                       # per-GAME spend cap (across all agents)
                     if real_entries:
