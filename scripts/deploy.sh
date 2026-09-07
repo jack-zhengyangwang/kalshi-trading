@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.." || exit 1
 
 DROPLET="${1:-root@147.182.237.14}"
-TARGET="/root/ebk-personal"
+TARGET="/root/WorldCupTrading"
 
 echo "Deploying to $DROPLET:$TARGET ..."
 
@@ -20,6 +20,8 @@ rsync -avz --delete \
     --exclude '.git/' \
     --exclude '.claude/' \
     --exclude 'legacy/' \
+    --exclude 'guard.py' \
+    --exclude 'group/' \
     --exclude 'MyPersonalAgent.txt' \
     --exclude '.env' \
     ./ "$DROPLET:$TARGET/"
