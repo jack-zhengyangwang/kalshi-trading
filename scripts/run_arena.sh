@@ -7,4 +7,7 @@ cd "$(dirname "$0")/.." || exit 1
 # Source secrets (KALSHI_KEY_ID)
 [ -f .env ] && set -a && . ./.env && set +a
 
-exec python3 -m wc.arena --once
+# cron runs with a minimal PATH — prefer the venv interpreter
+PY="./venv/bin/python3"; [ -x "$PY" ] || PY="python3"
+
+exec "$PY" -m wc.arena --once

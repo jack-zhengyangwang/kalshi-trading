@@ -1,4 +1,4 @@
-# WorldCup Trading — Autonomous Kalshi Betting System (v4 Brain)
+# Kalshi Trading — Autonomous Prediction-Market Betting System (v4 Brain)
 
 ## Context
 
@@ -8,13 +8,13 @@ Originally built for World Cup only (regex `^KXWC`). **v4 pivots to all soccer l
 
 The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-agent system (Trader/Brain/Keeper/Trainer), v2 per-category arena, and v3 multi-type pricing are retired/legacy/archived.
 
-## Current State (last reviewed 2026-08-25)
+## Current State (last reviewed 2026-09-07)
 
 **Read this first.** Status snapshot from a full read-only audit of the repo. Update it when the facts below change.
 
 ### Money
 
-**DISARMED.** `config/switchboard_v3.json` → `master.armed = false`, `master.kill = false`. No real orders can be placed. A real order requires `armed && --execute && !kill` (`wc/cycle.py:382`).
+**DISARMED, AND NOTHING IS DEPLOYED.** The droplet was wiped 2026-09-07; no code runs anywhere. `config/switchboard_v3.json` → `master.armed = false`, `master.kill = true`. No real orders can be placed. A real order requires `armed && --execute && !kill` (`wc/cycle.py:382`).
 
 ### Git / backup status
 
@@ -40,12 +40,13 @@ The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-
 |---|------|--------|
 | 1 | ~~v4 brain not wired in~~ → **partly fixed; `WC_BASE_WEIGHT` residue** | Verified 2026-09-07: `cycle.py:23` and `promote.py:40` both `import wc.brains as bl`, and `bl.load()` builds a per-league `BrainV4` set (`brains.py:91`). The wiring is done (`4bca437`). **Still open:** `arena.py:102` hardcodes `WC_BASE_WEIGHT = 0.25` and applies it at `arena.py:197-198` — a World-Cup-specific prior still shaping the paper arena's log-odds blend. |
 | 2 | ~~9 modules bypass `wc/paths.py`~~ → **FIXED** | Verified 2026-09-07: the only remaining `__file__` reference in `wc/` is `paths.py:2` itself (`ROOT = dirname(dirname(abspath(__file__)))`), which is correct. No module re-anchors its own `BASE`. |
-| 3 | ~~`deploy.sh` targets the wrong directory~~ → **FIXED 2026-09-07** | `TARGET` now `/root/WorldCupTrading` (the live pilot dir — note the droplet folder keeps the old name). **Also added `--exclude 'guard.py'` and `--exclude 'group/'`:** both exist only on the droplet, and `rsync --delete` would otherwise have deleted the safety watchdog on first correct deploy. Real fix is to bring `guard.py` into version control. |
-| 4 | **`per_game_cap_dollars` missing — cap silently inactive** | Verified 2026-09-07: still absent from `config/switchboard_v3.json` (`master` has only `armed`, `kill`, `total_capital_dollars`, `daily_cap_dollars`, `hard_stop_loss_pct`, `kill_flattens`). `cycle.py:234` defaults it to `0.0`, and the guard at `cycle.py:330` reads `if (real_open and per_game_cap and ...)` — `0.0` is falsy, so **the per-game cap check is skipped entirely**. Fails open, not closed: there is currently no per-event spend limit. |
-| 5 | **Doc drift** (partly fixed) | Fixed 2026-09-07: repo name and `cd` paths in `README.md`/`CLAUDE.md`. **Still open:** `README.md:3` still says "scans every open World Cup market"; `ARCHITECTURE.md`, `DEPLOY.md`, `SETUP.md`, `ADDING_AN_AGENT.md` remain 0-byte stubs; `RECAP.md` commands predate the `wc/` layout; `docs/DEPLOY_CLOUD.md` says `/opt/ebk-personal`; `edges/discover.sh` referenced but absent. |
+| 3 | ~~`deploy.sh` targets the wrong directory~~ → **FIXED 2026-09-07** | `TARGET` is now `/root/kalshi-trading`, matching the repo name. `guard.py` is in version control at repo root and deploys normally; the droplet-only `group/` dir is gone. |
+| 4 | ~~`per_game_cap_dollars` missing~~ → **FIXED 2026-09-07** | Added to `config/switchboard_v3.json` as `50.0` (recovered from the droplet's config, which had it). ⚠️ **The underlying fail-open remains:** `cycle.py:234` defaults it to `0.0` and `cycle.py:330` reads `if (real_open and per_game_cap and ...)` — `0.0` is falsy, so a missing key silently disables the cap rather than blocking. Should fail closed. |
+| 5 | ~~Doc drift~~ → **mostly FIXED 2026-09-07** | Repo name and paths corrected; README rewritten for all-soccer; `ARCHITECTURE.md`, `DEPLOY.md`, `SETUP.md`, `ADDING_AN_AGENT.md` written. **Still open:** `RECAP.md` commands predate the `wc/` layout; `docs/DEPLOY_CLOUD.md` says `/opt/ebk-personal`; `edges/discover.sh` referenced but absent. |
 | 6 | **Two gates on the droplet, not three** | `scripts/run_promote.sh` hardcodes `--execute`, so in cron the only live gates are `master.armed` and `master.kill`. The "three independent switches" claim below holds only for manual invocation. |
 | 7 | **Double-run risk** | `arena.py --once` and `promote.py` both delegate into `wc/cycle.py`. Running both cron scripts concurrently runs the paper arena twice. |
-| 8 | **Droplet stale + unversioned** (partly examined) | Checked 2026-09-07: `/root/WorldCupTrading` **is not a git repo** — hand-copied files, newest `guard.py` 2026-07-03, `wc/*.py` 2026-07-01/02. It runs ~2 months behind `Dev`, and any hand-edit made there since July exists nowhere else, so **diff the droplet against the repo before any deploy**. Still unknown: whether cron is live, what its switchboard says, and the pilot's P&L. Guard was set to stop at 2026-07-20 (WC end) or −$200. |
+| 8 | ~~Droplet stale + unversioned~~ → **WIPED 2026-09-07** | `/root/WorldCupTrading` and `/root/ebk-personal` deleted, crontab removed, nothing running. Everything rescued first to `~/dev/droplet-backup-2026-09-07` (12M: full code tarball, `guard.py`, RSA key, droplet switchboard, graded predictions, models, brain state, old crontab). Droplet is a clean Ubuntu box awaiting a fresh bootstrap — see `DEPLOY.md`. |
+| 9 | ~~`guard.py` WC-end stop fires unconditionally~~ → **FIXED 2026-09-07** | `WC_END_UTC = 2026-07-20` was hardcoded, so from Jul 20 onward `guard.py` tripped the kill switch every 4 min — this is why the droplet was found `armed=false, kill=true`. Limits now read from `switchboard_v3.json` `"guard"`: `max_loss_dollars` (200.0) and `stop_after_utc` (null = no date stop). |
 
 ### Evidence quality reminder
 

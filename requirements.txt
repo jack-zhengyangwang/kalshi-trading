@@ -4,3 +4,4 @@ pandas
 requests
 cryptography
 websocket-client  # Arena v2 live pricing (kalshi_client_v2.KalshiWS); optional
+pytest                     # test suite; also lets you verify a deploy on the droplet

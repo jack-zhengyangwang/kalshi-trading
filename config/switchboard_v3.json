@@ -1,11 +1,40 @@
 {
-  "_comment": "Arena v3 promotion — WINNER + GAME_LINES, PRE-GAME + IN-PLAY. Forward-only select (out-of-sample pre-game edge only). 4 agents = top-2 per category x $100/agent. daily_cap_dollars is SHARED across both categories AND pre/in-play (the hard real-spend limit). max_open=10 leaves room for in-play after pre-game. A real order fires ONLY when master.armed=true AND live_promote_v3.py --execute AND master.kill=false. Set master.kill=true to flatten the real book + halt.",
-  "master": { "armed": false, "kill": false, "total_capital_dollars": 400.0, "daily_cap_dollars": 200.0,
-              "hard_stop_loss_pct": 0.80, "kill_flattens": true },
+  "_comment": "Arena v3 promotion \u2014 WINNER + GAME_LINES, PRE-GAME + IN-PLAY. Forward-only select (out-of-sample pre-game edge only). 4 agents = top-2 per category x $100/agent. daily_cap_dollars is SHARED across both categories AND pre/in-play (the hard real-spend limit). max_open=10 leaves room for in-play after pre-game. A real order fires ONLY when master.armed=true AND live_promote_v3.py --execute AND master.kill=false. Set master.kill=true to flatten the real book + halt.",
+  "master": {
+    "armed": false,
+    "kill": true,
+    "total_capital_dollars": 400.0,
+    "daily_cap_dollars": 200.0,
+    "hard_stop_loss_pct": 0.8,
+    "kill_flattens": true,
+    "per_game_cap_dollars": 50.0
+  },
   "slots": {
-    "winner":     { "mode": "auto", "ensemble": 2, "member_capital": 100.0, "pin": null, "capital": 200.0,
-                    "max_bet": 8.0, "max_open": 10, "fuse_per_cycle": 20.0, "exit_mode": "hold" },
-    "game_lines": { "mode": "auto", "ensemble": 2, "member_capital": 100.0, "pin": null, "capital": 200.0,
-                    "max_bet": 8.0, "max_open": 10, "fuse_per_cycle": 20.0, "exit_mode": "hold" }
+    "winner": {
+      "mode": "auto",
+      "ensemble": 2,
+      "member_capital": 100.0,
+      "pin": null,
+      "capital": 200.0,
+      "max_bet": 8.0,
+      "max_open": 10,
+      "fuse_per_cycle": 20.0,
+      "exit_mode": "hold"
+    },
+    "game_lines": {
+      "mode": "auto",
+      "ensemble": 2,
+      "member_capital": 100.0,
+      "pin": null,
+      "capital": 200.0,
+      "max_bet": 8.0,
+      "max_open": 10,
+      "fuse_per_cycle": 20.0,
+      "exit_mode": "hold"
+    }
+  },
+  "guard": {
+    "max_loss_dollars": 200.0,
+    "stop_after_utc": null
   }
 }

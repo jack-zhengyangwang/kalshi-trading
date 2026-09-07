@@ -8,4 +8,7 @@ cd "$(dirname "$0")/.." || exit 1
 # Source secrets (KALSHI_KEY_ID, ANTHROPIC_API_KEY)
 [ -f .env ] && set -a && . ./.env && set +a
 
-exec python3 -m wc.promote --execute
+# cron runs with a minimal PATH — prefer the venv interpreter
+PY="./venv/bin/python3"; [ -x "$PY" ] || PY="python3"
+
+exec "$PY" -m wc.promote --execute
