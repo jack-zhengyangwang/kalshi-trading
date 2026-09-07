@@ -1,4 +1,4 @@
-# WorldCup Trading — Autonomous Kalshi Betting System
+# Kalshi Trading — Autonomous Prediction-Market Betting System
 
 An autonomous system that scans every open World Cup market on Kalshi, prices each leg with a blend of structural Poisson/NegBin models + optional LLM + market data, sizes bets via Kelly with hard per-bet caps, and evolves a population of strategy agents through a genetic algorithm.
 
@@ -7,7 +7,7 @@ An autonomous system that scans every open World Cup market on Kalshi, prices ea
 ## Quick Start
 
 ```bash
-cd ~/Desktop/Github\ Repositories/WorldCupTrading
+cd ~/dev/kalshi-trading
 source venv/bin/activate
 
 # Paper arena status

@@ -18,10 +18,11 @@ The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-
 
 ### Git / backup status
 
-- Working branch: **`per-game-cap`**. Branches: `main`, `Dev`, `restructure`, `per-game-cap`, `structural-support` — all committed work is pushed and matches `origin/`.
-- **Last commit: 2026-07-03** (`d294ab3`, "Add per-game (per-event) spend cap"). GitHub `pushedAt` confirms the same date.
-- **The entire v4 all-soccer pivot (2026-08-10) is uncommitted** — 13 untracked, 13 modified, 37 deleted (35 of those are moves into `v3_archive/`, which git records as delete+add).
-- Repo is **PRIVATE** on GitHub (`jack-zhengyangwang/WorldCupTrading`), so the droplet IP in this file is not publicly exposed.
+- Working branch: **`Dev`**, clean tree, in sync with `origin/Dev`.
+- **Last commit: 2026-09-03** (`6172864`, merge of PR #8 `v4-soccer-pivot`).
+- **The v4 all-soccer pivot is committed and merged into `Dev`** (`7c0fd84` pivot + `4bca437` BrainV4 wiring). `main` is still at `88879c7` (2026-07-02), ~2 months behind — the v4 work exists only on `Dev`.
+- **Repo renamed 2026-09-07:** `WorldCupTrading` → `kalshi-trading`, now at `~/dev/kalshi-trading`. Intended as the main repo for all Kalshi prediction-market work, with soccer as one strategy area. GitHub permanently redirects the old URL.
+- Repo is **PRIVATE** on GitHub (`jack-zhengyangwang/kalshi-trading`), so the droplet IP in this file is not publicly exposed.
 - `.gitignore` now also excludes `.claude/` (machine-local paths, ssh probes) and `v3_archive/models/*.csv`. Note: this drops the two CSVs out of version control; they remain on disk and in older commits.
 
 ### Environment gotcha — iCloud eviction breaks git
@@ -38,7 +39,7 @@ The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-
 | # | Item | Detail |
 |---|------|--------|
 | 1 | **v4 brain not wired in** | `arena.py`/`cycle.py`/`promote.py` still use `BrainV2` — WC-worded LLM prompts and `WC_BASE_WEIGHT=0.25` still active. `brain_v4.py` is referenced only by `tests/test_brain_v4.py`. |
-| 2 | **9 modules bypass `wc/paths.py`** | `BASE = os.path.dirname(__file__)` now resolves to `.../WorldCupTrading/wc`, not the repo root, so joins land one or two levels too deep. Files: `telegram_bot.py:20`, `scanner.py:26`, `promote.py:36`, `markets.py:33`, `pilot_status.py:15`, `prediction_db.py:23`, `investigate.py:14`, `core/promote_base.py:31`, `core/arena_base.py:36`, `lib/brain_model.py:25`. Several import `paths` *and* keep the stale constant. |
+| 2 | **9 modules bypass `wc/paths.py`** | `BASE = os.path.dirname(__file__)` now resolves to `.../kalshi-trading/wc`, not the repo root, so joins land one or two levels too deep. Files: `telegram_bot.py:20`, `scanner.py:26`, `promote.py:36`, `markets.py:33`, `pilot_status.py:15`, `prediction_db.py:23`, `investigate.py:14`, `core/promote_base.py:31`, `core/arena_base.py:36`, `lib/brain_model.py:25`. Several import `paths` *and* keep the stale constant. |
 | 3 | **`deploy.sh` targets the wrong directory** | Deploys to `root@147.182.237.14:/root/ebk-personal`, but the live v3 pilot runs from `/root/WorldCupTrading`. Deploying today writes to the wrong folder and silently has no effect — this is the "my change didn't take" / "disarm didn't work" bug class. |
 | 4 | **`per_game_cap_dollars` missing** | Read at `wc/cycle.py:235` but absent from the current `switchboard_v3.json` (the 2026-07-03 commit added it; an uncommitted edit removed it). |
 | 5 | **Doc drift** | `README.md` still says "every open World Cup market". `RECAP.md` commands predate the `wc/` layout. `docs/DEPLOY_CLOUD.md` says `/opt/ebk-personal`. `ARCHITECTURE.md`, `DEPLOY.md`, `SETUP.md`, `ADDING_AN_AGENT.md` are 0-byte stubs. `edges/discover.sh` is referenced but does not exist. |
@@ -169,7 +170,7 @@ These are addressed in v4 brain but still present in arena/cycle/promote (follow
 ## Project File Structure
 
 ```
-WorldCupTrading/
+kalshi-trading/
 ├── CLAUDE.md                     # This file — agent instructions
 ├── MyPersonalAgent.txt           # RSA private key (auth) — NEVER commit
 ├── wc/
@@ -364,7 +365,7 @@ Additional fuses:
 ## How to Run
 
 ```bash
-cd ~/Desktop/Github\ Repositories/WorldCupTrading
+cd ~/dev/kalshi-trading
 source venv/bin/activate
 
 # Paper arena — one forward cycle (settle → price → enter → exit → evolve)
