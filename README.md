@@ -1,8 +1,8 @@
 # Kalshi Trading — Autonomous Prediction-Market Betting System
 
-An autonomous system that scans every open World Cup market on Kalshi, prices each leg with a blend of structural Poisson/NegBin models + optional LLM + market data, sizes bets via Kelly with hard per-bet caps, and evolves a population of strategy agents through a genetic algorithm.
+An autonomous system that scans every open Soccer market on Kalshi (discovered live by tag, no hardcoded series list), prices each leg with a blend of structural Poisson/NegBin models + optional LLM + market data, sizes bets via Kelly with hard per-bet caps, and evolves a population of strategy agents through a genetic algorithm.
 
-**Status:** v3 paper arena running. Real-money pilot armed with tiny caps on game_lines pre-game. See [CLAUDE.md](CLAUDE.md) for full agent instructions, [RECAP.md](RECAP.md) for latest results.
+**Status:** v4 (per-league brains, all-soccer). Droplet wiped 2026-09-07 for a clean rebuild — nothing is deployed or trading right now. See [CLAUDE.md](CLAUDE.md) for full agent instructions, [RECAP.md](RECAP.md) for latest results.
 
 ## Quick Start
 
