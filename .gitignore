@@ -32,3 +32,5 @@ venv/
 
 # ── archived training data (large; fetch scripts in v3_archive/models/) ──
 v3_archive/models/*.csv
+data/backtests/
+data/market_history.db

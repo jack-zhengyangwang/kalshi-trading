@@ -1,0 +1,64 @@
+{
+  "name": "sell-cheap-longshots",
+  "version": 1,
+  "description": "Favorite-longshot bias: sub-10c contracts are systematically overpriced. Research shows contracts under 10c lose 60%+ on average, and NO longshots beat YES longshots by up to 64 percentage points across 300,000+ contracts. Bias is strongest at long horizons (calibration slope 1.74 beyond one month vs 0.90-1.10 under a week), so this only takes markets more than 30 days out. See docs/backtester/06_RESEARCH.md.",
+  "side": "no",
+  "universe": {
+    "series": [
+      "*"
+    ],
+    "max_yes_price_cents": 10,
+    "min_volume": 100,
+    "min_open_interest": 50,
+    "min_days_to_resolution": 30
+  },
+  "entry": {
+    "all": [
+      {
+        "signal": "yes_price",
+        "op": "lt",
+        "value": 0.1
+      },
+      {
+        "signal": "days_to_resolution",
+        "op": "gt",
+        "value": 30
+      },
+      {
+        "signal": "volume_24h",
+        "op": "gt",
+        "value": 100
+      },
+      {
+        "signal": "spread",
+        "op": "lt",
+        "value": 5
+      }
+    ]
+  },
+  "sizing": {
+    "method": "fixed",
+    "dollars": 5.0,
+    "max_bet_dollars": 5.0,
+    "max_concurrent_positions": 20
+  },
+  "exit": {
+    "any": [
+      {
+        "signal": "unrealized_pnl_pct",
+        "op": "lt",
+        "value": -0.5
+      },
+      {
+        "signal": "days_to_resolution",
+        "op": "lt",
+        "value": 1
+      }
+    ]
+  },
+  "caps": {
+    "daily_spend_dollars": 50.0,
+    "per_market_dollars": 5.0,
+    "total_exposure_dollars": 200.0
+  }
+}

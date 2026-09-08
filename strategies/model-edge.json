@@ -1,0 +1,65 @@
+{
+  "name": "model-edge",
+  "version": 1,
+  "description": "The current v4 live logic expressed as a spec: bet when our own brain's p_fair exceeds the market price by a threshold, sized by fractional Kelly. Exists so what we already run can be backtested through the same engine, on the same fee model, as every new idea.",
+  "side": "yes",
+  "universe": {
+    "series": [
+      "*"
+    ],
+    "min_volume": 50,
+    "min_days_to_resolution": 0
+  },
+  "entry": {
+    "all": [
+      {
+        "signal": "edge",
+        "op": "gt",
+        "value": 0.08
+      },
+      {
+        "signal": "price",
+        "op": "between",
+        "value": [
+          0.05,
+          0.95
+        ]
+      },
+      {
+        "signal": "spread",
+        "op": "lt",
+        "value": 6
+      }
+    ]
+  },
+  "sizing": {
+    "method": "kelly",
+    "fraction": 0.25,
+    "max_bet_dollars": 5.0,
+    "max_concurrent_positions": 15
+  },
+  "exit": {
+    "any": [
+      {
+        "signal": "edge",
+        "op": "lt",
+        "value": 0.0
+      },
+      {
+        "signal": "unrealized_pnl_pct",
+        "op": "lt",
+        "value": -0.5
+      },
+      {
+        "signal": "days_to_resolution",
+        "op": "lt",
+        "value": 0.05
+      }
+    ]
+  },
+  "caps": {
+    "daily_spend_dollars": 50.0,
+    "per_market_dollars": 5.0,
+    "total_exposure_dollars": 200.0
+  }
+}
