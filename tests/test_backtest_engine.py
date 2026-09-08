@@ -39,13 +39,32 @@ def spec(**over):
 
 NO_COST = engine.Costs(fee_rate=0.0, slippage_cents=0.0, max_volume_share=1.0)
 
+# Fills on the deciding bar. A DIAGNOSTIC, never a result — see
+# Costs.fill_delay_bars. Used only where a test isolates something other than
+# latency and a second bar would add noise rather than realism.
+IMMEDIATE = engine.Costs(fee_rate=0.0, slippage_cents=0.0, max_volume_share=1.0,
+                         fill_delay_bars=0)
+
+
+def with_fill_bar(bars, gap=60):
+    """Give a scenario a bar to fill on.
+
+    The engine fills on the bar AFTER the one whose conditions fired, so a
+    two-bar scenario (decide, settle) never trades. Duplicating the entry bar
+    `gap` seconds later keeps the fill price identical, so hand-computed
+    arithmetic is unchanged while the realistic path is what gets exercised.
+    """
+    fill = dict(bars[0])
+    fill["ts"] = bars[0]["ts"] + gap
+    return [bars[0], fill] + list(bars[1:])
+
 
 # ── 1. known answer ───────────────────────────────────────────────────────────
 
 def test_known_answer_settlement_win():
     """Buy 1000 contracts at 11c (ask, no slippage) = $110. Market settles YES,
     paying $1 each = $1000. Gross P&L = 1000 * (1.00 - 0.11) = $890."""
-    bars = [bar(ts=0), bar(ts=86400, result="yes", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0), bar(ts=86400, result="yes", close_time=86400)])
     trades, _ = engine.run(spec(), bars, starting_bankroll=1000.0, costs=NO_COST)
 
     assert len(trades) == 1
@@ -59,7 +78,7 @@ def test_known_answer_settlement_win():
 
 def test_known_answer_settlement_loss():
     """Same entry, settles NO: lose the full $110 stake."""
-    bars = [bar(ts=0), bar(ts=86400, result="no", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0), bar(ts=86400, result="no", close_time=86400)])
     trades, _ = engine.run(spec(), bars, starting_bankroll=1000.0, costs=NO_COST)
     assert trades[0]["gross_pnl"] == pytest.approx(-110.0)
     assert trades[0]["outcome"] == 0
@@ -67,7 +86,7 @@ def test_known_answer_settlement_loss():
 
 def test_fees_reported_separately_and_reduce_net():
     costs = engine.Costs(fee_rate=0.07, slippage_cents=0.0, max_volume_share=1.0)
-    bars = [bar(ts=0), bar(ts=86400, result="yes", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0), bar(ts=86400, result="yes", close_time=86400)])
     trades, _ = engine.run(spec(), bars, starting_bankroll=1000.0, costs=costs)
     t = trades[0]
     assert t["fees"] > 0
@@ -85,6 +104,8 @@ def test_zero_edge_loses_approximately_the_fees():
         tk = f"M{i}"
         bars.append(bar(ticker=tk, ts=ts, bid=49, ask=51, close=50,
                         close_time=ts + 86400))
+        bars.append(bar(ticker=tk, ts=ts + 60, bid=49, ask=51, close=50,
+                        close_time=ts + 86400))                    # fill bar
         bars.append(bar(ticker=tk, ts=ts + 86400, bid=49, ask=51, close=50,
                         close_time=ts + 86400,
                         result="yes" if i % 2 == 0 else "no"))
@@ -115,6 +136,8 @@ def test_perfect_foresight_is_hugely_profitable():
     for i in range(20):
         tk = f"W{i}"
         bars.append(bar(ticker=tk, ts=i * 86400, close_time=(i + 1) * 86400))
+        bars.append(bar(ticker=tk, ts=i * 86400 + 60,               # fill bar
+                        close_time=(i + 1) * 86400))
         bars.append(bar(ticker=tk, ts=(i + 1) * 86400,
                         close_time=(i + 1) * 86400, result="yes"))
     trades, _ = engine.run(spec(), bars, starting_bankroll=10_000.0, costs=NO_COST)
@@ -145,10 +168,55 @@ def test_context_never_contains_the_outcome():
 
 
 def test_trailing_features_use_history_only():
-    hist = [0.10, 0.12, 0.14]
+    hist = [{"price": p, "open_interest": oi}
+            for p, oi in ((0.10, 100), (0.12, 110), (0.14, 120))]
     v = engine.BarView(bar(ts=100, bid=15, ask=17), history=hist)
     ctx = v.to_ctx("yes")
     assert ctx["price_change_pct"] == pytest.approx((0.16 - 0.10) / 0.10)
+
+
+def test_oi_change_pct_is_computed_not_merely_declared():
+    """It was in the vocabulary but never computed, so a strategy gating on it
+    validated, ran, placed nothing, and gave no reason why."""
+    hist = [{"price": 0.10, "open_interest": 100},
+            {"price": 0.12, "open_interest": 110}]
+    row = bar(ts=100, bid=15, ask=17)
+    row["open_interest"] = 150
+    v = engine.BarView(row, history=hist)
+    assert v.to_ctx("yes")["oi_change_pct"] == pytest.approx(0.5)
+
+
+def test_trailing_features_absent_without_history():
+    """No history means no derived feature — never a fabricated zero, which a
+    condition could accidentally satisfy."""
+    ctx = engine.BarView(bar(ts=100, bid=15, ask=17)).to_ctx("yes")
+    assert "oi_change_pct" not in ctx and "volatility" not in ctx
+
+
+def test_volume_24h_sums_the_trailing_day_not_one_bar():
+    bars = [bar(ticker="M", ts=t, close_time=90 * 86400) for t in
+            (0, 3600, 7200, 200_000)]
+    for b in bars:
+        b["volume"] = 100
+    seen = {}
+    s = spec()
+    s["entry"] = {"all": [{"signal": "volume_24h", "op": "gt", "value": 10 ** 9}]}
+
+    real_evaluate = interpret.evaluate
+
+    def spy(cond, ctx):
+        if "ticker" in ctx:
+            seen[ctx.get("price") and len(seen)] = ctx.get("volume_24h")
+        return real_evaluate(cond, ctx)
+
+    interpret.evaluate = spy
+    try:
+        engine.run(s, bars, starting_bankroll=1000.0, costs=NO_COST)
+    finally:
+        interpret.evaluate = real_evaluate
+    vols = [v for v in seen.values() if v is not None]
+    assert max(vols) == 300          # three bars inside 24h
+    assert min(vols) == 100          # the bar >24h later starts a fresh window
 
 
 # ── 5. cap enforcement ────────────────────────────────────────────────────────
@@ -182,7 +250,7 @@ def test_max_concurrent_positions_binds():
 
 
 def test_per_market_cap_limits_stake():
-    bars = [bar(ts=0), bar(ts=86400, result="yes", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0), bar(ts=86400, result="yes", close_time=86400)])
     s = spec()
     s["caps"]["per_market_dollars"] = 2.0
     trades, _ = engine.run(s, bars, starting_bankroll=1000.0, costs=NO_COST)
@@ -192,7 +260,8 @@ def test_per_market_cap_limits_stake():
 def test_volume_cap_limits_contracts():
     """Never fill more than a share of the bar's traded volume."""
     costs = engine.Costs(fee_rate=0.0, slippage_cents=0.0, max_volume_share=0.10)
-    bars = [bar(ts=0, volume=50), bar(ts=86400, result="yes", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0, volume=50),
+                          bar(ts=86400, result="yes", close_time=86400)])
     trades, _ = engine.run(spec(), bars, starting_bankroll=1000.0, costs=costs)
     assert trades[0]["contracts"] <= 5
 
@@ -202,21 +271,22 @@ def test_volume_cap_limits_contracts():
 def test_buy_fills_at_ask_not_close():
     """Filling at close assumes size existed at the midpoint — the most common
     way a backtest flatters itself."""
-    bars = [bar(ts=0, bid=9, ask=11, close=10),
-            bar(ts=86400, result="yes", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0, bid=9, ask=11, close=10),
+                          bar(ts=86400, result="yes", close_time=86400)])
     trades, _ = engine.run(spec(), bars, starting_bankroll=1000.0, costs=NO_COST)
     assert trades[0]["entry_price"] == pytest.approx(0.11)
 
 
 def test_slippage_worsens_entry():
     costs = engine.Costs(fee_rate=0.0, slippage_cents=2.0, max_volume_share=1.0)
-    bars = [bar(ts=0), bar(ts=86400, result="yes", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0), bar(ts=86400, result="yes", close_time=86400)])
     trades, _ = engine.run(spec(), bars, starting_bankroll=1000.0, costs=costs)
     assert trades[0]["entry_price"] == pytest.approx(0.13)
 
 
 def test_no_side_buys_the_complement():
-    bars = [bar(ts=0, bid=9, ask=11), bar(ts=86400, result="no", close_time=86400)]
+    bars = with_fill_bar([bar(ts=0, bid=9, ask=11),
+                          bar(ts=86400, result="no", close_time=86400)])
     s = spec(side="no", entry={"all": [{"signal": "price", "op": "lt", "value": 0.99}]})
     trades, _ = engine.run(s, bars, starting_bankroll=1000.0, costs=NO_COST)
     assert trades[0]["entry_price"] == pytest.approx(0.91)   # 100 - bid

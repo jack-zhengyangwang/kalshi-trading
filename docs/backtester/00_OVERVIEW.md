@@ -4,8 +4,14 @@
 open-source Kalshi tooling landscape, and the prediction-market research
 literature. Research findings and sources: [06_RESEARCH.md](06_RESEARCH.md).*
 
-> **Status:** design, not built. Nothing here is implemented yet.
-> The droplet is deployed but **idle** (no cron) and **disarmed**.
+> **Status (2026-09-08):** all five phases built. Historical backfill is the
+> one deliberate omission — archived history will still be there next month,
+> whereas un-collected forward history is gone forever.
+>
+> **The collector is not on cron yet, so no history is accruing.** Until it is,
+> every backtest runs on a single snapshot and every P&L is noise.
+>
+> The droplet is deployed but **idle** and **disarmed**.
 
 ---
 
@@ -49,14 +55,18 @@ the 2026-09-07 droplet wipe just cleaned up.
 
 ```
 wc/
-├── backtest/            NEW
-│   ├── data.py          candlestick + trade fetch, SQLite store
-│   ├── collect.py       forward collector (run on the droplet)
-│   ├── engine.py        the replay loop
-│   ├── metrics.py       PnL, Brier, calibration, drawdown, Sharpe
-│   ├── spec.py          DSL schema + validation
-│   ├── interpret.py     the ONLY code that executes a strategy
-│   └── author.py        English/video -> spec via LLM
+├── backtest/
+│   ├── data.py          SQLite store + idempotent writes          DONE
+│   ├── collect.py       forward collector (cron on the droplet)   DONE
+│   ├── quality.py       gap / settlement / sanity report          DONE
+│   ├── engine.py        the replay loop                           DONE
+│   ├── metrics.py       PnL, Brier, calibration, drawdown, Sharpe DONE
+│   ├── spec.py          DSL schema + validation                   DONE
+│   ├── interpret.py     the ONLY code that executes a strategy    DONE
+│   ├── pricing.py       our brains -> the model_prob signal       DONE
+│   ├── run.py           walk-forward runner + CLI                 DONE
+│   ├── author.py        English/video -> spec via LLM             DONE
+│   └── dashboard.py     self-contained HTML from metrics.json     DONE
 ├── kalshi/              EXISTING — reused as-is
 └── lib/kelly.py         EXISTING — reused for sizing
 strategies/              NEW — one JSON file per strategy, in git
@@ -77,6 +87,7 @@ phase before the one above it passes its own tests.
 | 3 | **Strategy DSL** | [03_STRATEGY_DSL.md](03_STRATEGY_DSL.md) | Schema, interpreter, one hand-written baseline strategy |
 | 4 | **Authoring** | [04_AUTHORING.md](04_AUTHORING.md) | English -> spec, then video -> spec |
 | 5 | **Dashboard** | [05_DASHBOARD.md](05_DASHBOARD.md) | Equity curves, calibration, leaderboard |
+| — | **Promotion criteria** | [07_PROMOTION.md](07_PROMOTION.md) | The gates from backtest to paper to real money |
 
 Phases 1–3 are the foundation. Phase 4 is cheap *only because* phase 3 exists.
 Phase 5 is presentation and can slip without blocking anything.
@@ -122,6 +133,5 @@ Resolve before or during the phase noted.
    Determines whether backtests start at months or years of history.
 3. **Do we model maker fills at all in v1,** or taker-only? (phase 2)
    Taker-only is simpler and pessimistic, which is the safe direction.
-4. **Promotion criteria** (phase 3+): what backtest result justifies paper, and
-   what paper result justifies real money? This must be written down *before*
-   the first strategy is tested, or it becomes post-hoc rationalisation.
+4. ~~**Promotion criteria**~~ — **resolved**, written down before the first
+   strategy was tested: [07_PROMOTION.md](07_PROMOTION.md).

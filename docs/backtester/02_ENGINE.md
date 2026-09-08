@@ -53,7 +53,7 @@ edge, and approximating them is how a losing strategy looks profitable.
 | **Spread** | Buy at `yes_ask`, sell at `yes_bid`. Never at `close` |
 | **Slippage** | Configurable cents on top of the spread |
 | **Volume cap** | Fill at most `max_volume_share` of the bar's volume |
-| **Latency** | v1: assume the next bar, not this one |
+| **Latency** | Fill on the NEXT bar (`Costs.fill_delay_bars`, default 1). Entries and exits both. Intents older than `max_fill_age_seconds` expire unfilled |
 
 Every cost is a config value with a documented default, and the metrics output
 reports gross PnL, total fees, and net PnL separately — so it is always visible
@@ -129,9 +129,66 @@ harder than anything else.
 
 ## 7. Definition of done
 
-- [ ] All five validation cases pass
-- [ ] Runs a full series end-to-end and emits `metrics.json`
-- [ ] Walk-forward split is the default, in-sample requires an explicit flag
-- [ ] Gross PnL, fees, and net PnL reported separately
-- [ ] Metrics segmented by time-to-resolution, price bucket, and series
-- [ ] Rejection reasons counted, so unexecutable strategies are visible
+- [x] All five validation cases pass
+- [x] Runs a full series end-to-end and emits `metrics.json`
+- [x] Walk-forward split is the default, in-sample requires an explicit flag
+- [x] Gross PnL, fees, and net PnL reported separately
+- [x] Metrics segmented by time-to-resolution, price bucket, and series
+- [x] Rejection reasons counted, so unexecutable strategies are visible
+- [x] Most recent period held out entirely (`--holdout-frac`, default 25%) and
+      scored once, reported separately from the walk-forward result
+- [x] In-sample and out-of-sample recorded in the SAME `metrics.json`
+- [x] **Latency modelled.** Fills happen on the bar AFTER the deciding bar,
+      for exits as well as entries, with committed-but-unfilled capital counted
+      against the caps. Every run also reports the same-bar result as a
+      diagnostic and warns when a strategy is mostly an execution artefact
+
+### Latency, and why it is not a P&L haircut
+
+Filling on the bar that triggered a strategy is not merely imprecise — it is
+**biased, always in the flattering direction**. The price that caused the signal
+is the price the strategy gets, and trigger prices (the dip below 10c, the
+blown-out spread) are the least likely to still be there when an order arrives.
+The error never averages out: every trade takes the same small gift, and across
+thousands of trades that compounds into an edge that does not exist.
+
+The fix is **not** a correction factor applied to P&L. A haircut would be a
+constant where the real effect is not (it is large for threshold-triggered
+strategies and near zero for slow ones), it would hide the assumption inside a
+number nobody can audit, and it would make strategies incomparable. Instead the
+engine changes *where the fill price comes from*, and P&L falls out of that
+honestly.
+
+Both directions are kept: if the market moved in our favour between decision and
+fill, the strategy keeps it. A delay that only ever hurt would be a different
+kind of fudge factor.
+
+**The useful output is the comparison.** Every run also replays the strategy
+with same-bar fills and reports `latency_sensitivity`:
+
+| Ratio | Reading |
+|---|---|
+| ~1.0 | The edge survives execution |
+| >2.0 | Most of the "edge" is the strategy capturing its own trigger price — warned about explicitly |
+| Profitable same-bar, unprofitable next-bar | An execution artefact, not a strategy |
+
+At 5-minute snapshots, next-bar means **5 minutes** of latency, which is far
+slower than the live path really is — just as same-bar is faster than possible.
+The truth is between them, and finer resolution is not purchasable: Kalshi sells
+no L2 history. The bracket is the honest shape for the uncertainty, and the
+pessimistic end is the safe one to act on.
+
+### Model-fitted lookahead — the limit of the guarantee
+
+Section 2's no-lookahead guarantee is structural and holds: a strategy is handed
+a `BarView` and cannot read a future bar or an unsettled result.
+
+It does **not** cover a MODEL fitted on the future. `wc/backtest/pricing.py`
+supplies `model_prob` from our own brains, whose Elo ratings are a present-day
+snapshot and whose stacker weights were trained on outcomes spanning the
+backtest window. Fixing this properly needs point-in-time Elo snapshots, which
+were never recorded.
+
+So every report produced with `--brains` carries a `lookahead_risk` field and a
+printed warning. Calibration degrades under leakage in a way raw P&L does not,
+which makes Brier the more honest number on those runs.

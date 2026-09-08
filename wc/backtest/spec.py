@@ -30,7 +30,9 @@ SIGNALS = {
     "yes_ask":           (0, 100, "best yes ask, cents"),
     "spread":            (0, 100, "ask - bid, cents"),
     "days_to_resolution": (0.0, 3650.0, "from close_time; edge varies sharply on this"),
-    "volume_24h":        (0, None, "contracts traded, trailing 24h"),
+    "volume":            (0, None, "contracts traded in THIS bar"),
+    "volume_24h":        (0, None, "contracts traded on this ticker in the "
+                                   "trailing 24h, summed across bars"),
     "open_interest":     (0, None, "open contracts"),
     "oi_change_pct":     (-1.0, None, "open-interest change over lookback"),
     "price_change_pct":  (-1.0, None, "price change over lookback"),
@@ -50,6 +52,13 @@ OPS = {"lt", "lte", "gt", "gte", "eq", "between"}
 COMBINATORS = {"all", "any"}
 SIDES = {"yes", "no"}
 SIZING_METHODS = {"kelly", "fixed", "fraction_of_bankroll"}
+
+# Kelly parameters are passed through to wc/lib/kelly.py — the live path's
+# sizer — rather than reimplemented here. See interpret._kelly_config for the
+# defaults the backtest deliberately differs on.
+SIZING_KEYS = {"method", "fraction", "dollars", "max_bet_dollars",
+               "max_concurrent_positions", "min_edge", "min_bet_dollars",
+               "tvm_rate"}
 
 REQUIRED_CAPS = ("daily_spend_dollars", "per_market_dollars", "total_exposure_dollars")
 
@@ -155,6 +164,13 @@ def validate(spec):
         if not isinstance(sizing["max_bet_dollars"], (int, float)) \
                 or sizing["max_bet_dollars"] <= 0:
             _fail("sizing.max_bet_dollars must be a positive number")
+
+    # Unknown sizing keys are rejected, not ignored. A typo'd `tvm_rate` that
+    # silently did nothing would make a spec mean something other than what it
+    # says — the same reasoning as the universe key check below.
+    for key in sizing:
+        if key not in SIZING_KEYS:
+            _fail(f"unknown sizing key '{key}'. Known: {sorted(SIZING_KEYS)}")
 
     # ── caps: mandatory, and must be usable ──────────────────────────────────
     # Consistent with wc/lib/caps.py: a cap that is missing or non-positive

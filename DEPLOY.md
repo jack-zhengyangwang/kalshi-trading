@@ -46,9 +46,19 @@ Secrets are excluded from rsync by design, so they are copied once, by hand.
 ```
 
 `rsync --delete` is used, so **anything on the droplet that is not in the repo
-gets deleted.** Excluded from deletion: `venv/`, `logs/`, state dirs, and the
-two secret files. If you hand-edit a file on the droplet, it is destroyed on
-the next deploy and exists nowhere else — don't.
+gets deleted.** Excluded from deletion: `venv/`, `logs/`, state dirs, the two
+secret files, and `data/market_history.db`. If you hand-edit a file on the
+droplet, it is destroyed on the next deploy and exists nowhere else — don't.
+
+The history DB is excluded for a specific reason: it is the one artefact here
+that cannot be regenerated. Code, models, and state can all be rebuilt; a
+snapshot the collector never took is gone permanently. Back it up before any
+risky droplet work:
+
+```bash
+scp root@147.182.237.14:/root/kalshi-trading/data/market_history.db \
+    ./data/market_history.$(date +%Y%m%d).db
+```
 
 ## Cron
 
@@ -56,6 +66,7 @@ Not installed by the deploy; you install it deliberately when you want the
 system live. Reference schedule:
 
 ```cron
+*/5    * * * * cd /root/kalshi-trading && flock -n /tmp/collect.lock ./scripts/run_collect.sh >> logs/collect.out 2>&1
 1-59/2 * * * * cd /root/kalshi-trading && flock -n /tmp/arena.lock  ./scripts/run_arena.sh   >> logs/arena.out  2>&1
 3-59/5 * * * * cd /root/kalshi-trading && flock -n /tmp/promote.lock ./scripts/run_promote.sh >> logs/promote.out 2>&1
 */4    * * * * cd /root/kalshi-trading && flock -n /tmp/guard.lock  ./scripts/run_guard.sh   >> logs/guard.out  2>&1
@@ -68,6 +79,40 @@ twice (known issue #7).
 
 **After any reboot, run `systemctl enable cron`.** A 2026-07-06 reboot left cron
 disabled and the whole system was silent for 26 hours before anyone noticed.
+
+### The collector is the one line worth installing on its own
+
+`run_collect.sh` is **read-only against Kalshi** — it lists markets and writes to
+a local SQLite file, and never places, cancels, or prices an order. It is safe
+to run while the system is disarmed, and it *should* be: every cycle it does not
+run is history that can never be recovered, whereas the trading crons can be
+installed whenever you decide to go live.
+
+So install it by itself first:
+
+```bash
+ssh root@147.182.237.14
+cd /root/kalshi-trading
+(crontab -l 2>/dev/null; echo '*/5 * * * * cd /root/kalshi-trading && flock -n /tmp/collect.lock ./scripts/run_collect.sh >> logs/collect.out 2>&1') | crontab -
+systemctl enable cron && systemctl start cron
+```
+
+Check it after ten minutes — two cycles should have landed:
+
+```bash
+ssh root@147.182.237.14 'cd /root/kalshi-trading \
+  && tail -3 logs/collect.jsonl \
+  && ./venv/bin/python3 -m wc.backtest.quality --interval 300'
+```
+
+`flock` matters here for the same reason it does elsewhere: a cycle takes ~50s
+and the interval is 300s, so overlap is unlikely but a slow API day would
+otherwise stack cycles. Snapshot timestamps are floored to the interval anyway,
+so even a double-fire overwrites rather than duplicating.
+
+**If `wc.backtest.quality` reports anything under "BLOCKING", stop and fix it
+before building on the data.** A backtest on bad history produces a confident
+wrong number, which is worse than no backtest.
 
 ## Safety
 

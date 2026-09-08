@@ -9,6 +9,11 @@ TARGET="/root/kalshi-trading"
 
 echo "Deploying to $DROPLET:$TARGET ..."
 
+# NOTE: --delete means anything on the droplet that is not here is destroyed.
+# data/market_history.db is excluded because it is the ONE artefact in this
+# system that cannot be regenerated: every snapshot the collector missed is
+# history Kalshi will not sell back to us. Without this line, a routine deploy
+# silently deletes months of collection.
 rsync -avz --delete \
     --exclude 'venv/' \
     --exclude '__pycache__/' \
@@ -17,6 +22,8 @@ rsync -avz --delete \
     --exclude 'arena_v3_state/' \
     --exclude 'arena_v2_state/' \
     --exclude 'logs/' \
+    --exclude 'data/market_history.db' \
+    --exclude 'data/backtests/' \
     --exclude '.git/' \
     --exclude '.claude/' \
     --exclude 'legacy/' \

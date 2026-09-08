@@ -187,10 +187,16 @@ the schema has an escape hatch, every argument in §1 collapses.
 
 ## 6. Definition of done
 
-- [ ] Schema documented, with every signal's range and computation
-- [ ] Validator rejects each malformed case in §2, with a useful message
-- [ ] Interpreter unit-tested against hand-computed conditions
-- [ ] `sell-cheap-longshots.json` validates and backtests end-to-end
-- [ ] `model-edge.json` reproduces the current live logic
-- [ ] Caps proven mandatory — a spec without them fails to load
-- [ ] No-lookahead test passes through the interpreter path
+- [x] Schema documented, with every signal's range and computation
+- [x] Validator rejects each malformed case in §2, with a useful message
+- [x] Interpreter unit-tested against hand-computed conditions
+- [x] `sell-cheap-longshots.json` validates and backtests end-to-end
+- [x] `model-edge.json` reproduces the current live logic — priced by the same
+      brains, through `wc/backtest/pricing.py`, with `--brains`
+- [x] Caps proven mandatory — a spec without them fails to load
+- [x] No-lookahead test passes through the interpreter path
+- [x] Kelly delegates to `wc/lib/kelly.py`; a test stubs the library out to
+      prove there is no second implementation
+- [x] Every declared signal is actually computed — `oi_change_pct`,
+      `volume_24h`, and `hold_to_settlement` were declared-but-inert, meaning a
+      spec using them validated, ran, placed nothing, and gave no reason why

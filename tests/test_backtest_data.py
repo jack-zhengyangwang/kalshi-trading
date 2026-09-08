@@ -100,3 +100,15 @@ def test_trades_idempotent(con):
     data.upsert_trades(con, rows)
     data.upsert_trades(con, rows)
     assert con.execute("SELECT COUNT(*) n FROM trades").fetchone()["n"] == 1
+
+
+def test_settled_result_is_never_overwritten_by_a_later_listing(con):
+    """A settlement outcome cannot be recomputed after the fact. An open-market
+    listing carries result=NULL, so upsert must COALESCE rather than assign —
+    otherwise routine re-listing erases truth, silently and undetectably."""
+    data.upsert_market(con, {"ticker": "T", "series": "S", "close_time": 100,
+                             "status": "active", "result": None})
+    data.set_result(con, "T", "settled", "yes")
+    data.upsert_market(con, {"ticker": "T", "series": "S", "close_time": 100,
+                             "status": "active", "result": None})
+    assert con.execute("SELECT result FROM markets").fetchone()["result"] == "yes"

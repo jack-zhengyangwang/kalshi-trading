@@ -130,8 +130,23 @@ written into the metrics output, not left as folklore.
 ## 6. Definition of done
 
 - [ ] Backfill pulls a known market's full history and matches the Kalshi UI
-- [ ] Re-running backfill changes zero rows (idempotent)
+      — **not built.** Deferred deliberately: archived history will still be
+      there next month, whereas un-collected forward history is gone forever
+- [x] Re-running an ingest changes zero rows (idempotent) — snapshot timestamps
+      are floored to the interval, so even a double-fired cron overwrites
 - [ ] Collector runs on the droplet under cron and survives reboot
-- [ ] Quality report on a real series, with gaps explained
-- [ ] `days_to_resolution` derivable for every candle (needed by the DSL)
+      — built and verified locally; cron not yet installed (see DEPLOY.md)
+- [x] Quality report, with gaps explained — `wc/backtest/quality.py`
+- [x] `days_to_resolution` derivable for every candle — `close_time` stored as
+      epoch seconds, computed in `engine.BarView.days_to_resolution`
 - [ ] Documented answer to: how far back does the archive actually go?
+      — open, and only relevant once backfill is written
+
+### Measured, 2026-09-07
+
+Kalshi lists **~1400 soccer series** (tag-discovered) and **61,000+ open markets
+overall**, so neither "probe every soccer series" nor "sweep all open markets"
+fits in a cron interval. The collector narrows by suffix instead:
+`config/collector.json` defaults to `GAME` (match winner) — **139 series, ~600
+open markets, ~50s per cycle**. Widening to game_lines is ~1000 series and
+~6 min, which needs `interval_seconds` raised to 900 first.

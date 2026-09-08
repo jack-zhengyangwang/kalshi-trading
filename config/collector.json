@@ -1,0 +1,11 @@
+{
+  "_doc": "Forward collector universe. Series are discovered live by Kalshi's 'Soccer' tag (wc/scanner.discover_soccer_series) and then narrowed by these suffixes, exactly as the trading path narrows in config/categories_v2.json — so the collector and the scanner can never drift onto different market sets. Widening is a config change, never a new file.",
+
+  "suffixes": ["GAME"],
+  "_suffixes_note": "GAME = match winner (home/draw/away). MEASURED 2026-09-07: 139 series, 2130 open markets, 35s per cycle. This is where our own forecasting edge lives and it is the most-validated category. Widening to game_lines (SPREAD/TOTAL/BTTS/1H/2H) is ~1000 series and several minutes per cycle — raise interval_seconds to 900 first, and check GET /account/api-limits.",
+
+  "interval_seconds": 300,
+  "_interval_note": "Must match the cron schedule AND the --interval passed to wc.backtest.quality, or gap detection reports phantom gaps. Snapshot timestamps are floored to this bucket so a double-fired cron overwrites rather than duplicates.",
+
+  "series_cache_ttl": 3600
+}

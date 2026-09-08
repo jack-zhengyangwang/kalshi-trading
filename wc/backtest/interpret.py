@@ -12,6 +12,7 @@ See docs/backtester/03_STRATEGY_DSL.md section 3.
 from __future__ import annotations
 
 from wc.backtest.spec import COMBINATORS
+from wc.lib import kelly
 
 
 class MissingSignal(KeyError):
@@ -115,11 +116,41 @@ def should_exit(spec, ctx, position=None):
     return evaluate(spec["exit"], ctx)
 
 
-def size(spec, ctx, bankroll, kelly_fn=None):
+def _kelly_config(sizing):
+    """Translate the spec's sizing block into wc/lib/kelly.py's config dict.
+
+    Two defaults differ deliberately from the live path's:
+
+    `min_edge` defaults to 0, because in the DSL an edge threshold is an ENTRY
+    condition ({"signal": "edge", "op": "gt", ...}), not a sizing parameter. A
+    hidden second threshold inside sizing would silently veto entries the spec
+    said to take, and the spec is meant to be the whole strategy.
+
+    `min_bet_dollars` defaults to 0 for the same reason: the live path floors
+    tiny bets because a 30c order is not worth placing, but in a backtest that
+    floor would round a stake UP, inventing exposure the strategy never asked
+    for. Sizing up is the wrong direction to be wrong in.
+
+    `tvm_rate` defaults to 0 (no time-value discount) so a spec means the same
+    thing whether or not it opts in. Set it explicitly to get the live
+    behaviour.
+    """
+    return {
+        "kelly_fraction":  float(sizing["fraction"]),
+        "max_bet_dollars": float(sizing.get("max_bet_dollars", float("inf"))),
+        "min_edge":        float(sizing.get("min_edge", 0.0)),
+        "min_bet_dollars": float(sizing.get("min_bet_dollars", 0.0)),
+        "tvm_rate":        float(sizing.get("tvm_rate", 0.0)),
+    }
+
+
+def size(spec, ctx, bankroll):
     """Dollar stake for an entry. Returns 0.0 when the strategy should not size.
 
-    Kelly delegates to wc/lib/kelly.py — there is deliberately no second Kelly
-    implementation in this codebase.
+    Kelly delegates to wc/lib/kelly.py. There is deliberately no second Kelly
+    implementation in this codebase, and no injection hook to become one: a
+    backtest that sized differently from the live path would be measuring a
+    strategy we do not actually run.
     """
     sizing = spec["sizing"]
     method = sizing["method"]
@@ -136,13 +167,9 @@ def size(spec, ctx, bankroll, kelly_fn=None):
         price = ctx.get("price")
         if p is None or price is None or not (0 < price < 1):
             return 0.0                                 # cannot size without both
-        if kelly_fn is not None:
-            stake = kelly_fn(p, price, bankroll) * float(sizing["fraction"])
-        else:
-            # b = net odds received on a win for a binary contract at `price`
-            b = (1.0 - price) / price
-            edge = (p * b - (1.0 - p)) / b if b > 0 else 0.0
-            stake = max(0.0, edge) * bankroll * float(sizing["fraction"])
+        tau = ctx.get("days_to_resolution") or 0.0
+        stake = kelly.size_tvm(p, price, bankroll, _kelly_config(sizing), tau_days=tau)
+
     else:
         return 0.0                                     # unreachable: validated
 

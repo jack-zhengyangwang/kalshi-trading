@@ -104,3 +104,64 @@ def test_kelly_zero_on_negative_edge():
 def test_size_never_exceeds_bankroll():
     spec = {"sizing": {"method": "fixed", "dollars": 1e9}}
     assert interpret.size(spec, {}, 100.0) == 100.0
+
+
+# ── kelly delegates to the live sizer ─────────────────────────────────────────
+
+def test_kelly_uses_the_live_sizer_not_a_local_copy(monkeypatch):
+    """The backtest must size through wc/lib/kelly.py. If this test can be made
+    to pass with the library stubbed out, a second implementation has crept
+    back in."""
+    from wc.lib import kelly as live_kelly
+    calls = []
+
+    def spy(p, price, balance, config, tau_days=0):
+        calls.append((p, price, balance, config, tau_days))
+        return 42.0
+
+    monkeypatch.setattr(live_kelly, "size_tvm", spy)
+    spec = {"sizing": {"method": "kelly", "fraction": 0.25}}
+    stake = interpret.size(spec, {"model_prob": 0.6, "price": 0.5}, 1000.0)
+
+    assert stake == 42.0
+    assert len(calls) == 1
+    assert calls[0][0] == 0.6 and calls[0][1] == 0.5
+
+
+def test_kelly_matches_the_live_sizer_exactly():
+    from wc.lib import kelly as live_kelly
+    spec = {"sizing": {"method": "kelly", "fraction": 0.25,
+                       "max_bet_dollars": 500.0}}
+    ctx = {"model_prob": 0.62, "price": 0.48, "days_to_resolution": 14.0}
+    expected = live_kelly.size_tvm(
+        0.62, 0.48, 1000.0,
+        {"kelly_fraction": 0.25, "max_bet_dollars": 500.0,
+         "min_edge": 0.0, "min_bet_dollars": 0.0, "tvm_rate": 0.0},
+        tau_days=14.0)
+    assert interpret.size(spec, ctx, 1000.0) == pytest.approx(expected)
+
+
+def test_min_bet_floor_defaults_off_so_stakes_are_never_rounded_up():
+    """The live path floors tiny bets at $1. In a backtest that would invent
+    exposure the strategy never asked for, so the floor defaults to 0."""
+    spec = {"sizing": {"method": "kelly", "fraction": 0.001}}
+    stake = interpret.size(spec, {"model_prob": 0.51, "price": 0.50}, 100.0)
+    assert 0 < stake < 1.0
+
+
+def test_min_edge_defaults_off_so_entry_conditions_are_the_only_gate():
+    """A hidden sizing threshold would veto entries the spec said to take."""
+    spec = {"sizing": {"method": "kelly", "fraction": 1.0}}
+    # edge of 0.01 is below wc/lib/kelly.py's live min_edge default of 0.03
+    assert interpret.size(spec, {"model_prob": 0.51, "price": 0.50}, 1000.0) > 0
+
+
+def test_tvm_discount_is_opt_in_and_shrinks_long_dated_stakes():
+    ctx = {"model_prob": 0.6, "price": 0.5, "days_to_resolution": 90.0}
+    plain = interpret.size({"sizing": {"method": "kelly", "fraction": 1.0}},
+                           ctx, 1000.0)
+    discounted = interpret.size(
+        {"sizing": {"method": "kelly", "fraction": 1.0, "tvm_rate": 0.08}},
+        ctx, 1000.0)
+    assert plain == pytest.approx(200.0)          # unchanged default
+    assert discounted < plain

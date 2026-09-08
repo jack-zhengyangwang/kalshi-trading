@@ -26,7 +26,10 @@ def _make_db(tmp_path, name, n_markets, yes_every):
             "result": "yes" if i % yes_every == 0 else "no"})
         bar = {"yes_bid": 6, "yes_ask": 8, "open": 7, "high": 7, "low": 7,
                "close": 7, "volume": 5000, "open_interest": 1000}
+        # Three bars: the engine decides on one and fills on the NEXT (see
+        # Costs.fill_delay_bars), so a decide/settle pair would never trade.
         data.upsert_candles(con, tk, [{"ts": entry_ts, **bar},
+                                      {"ts": entry_ts + 60, **bar},
                                       {"ts": close, **bar}])
     return con
 
@@ -38,6 +41,21 @@ def db(tmp_path):
     return _make_db(tmp_path, "overpriced.db", n_markets=60, yes_every=60)
 
 
+def uncapped(spec):
+    """The shipped caps let only ~20 of the 60 markets hold a slot at once, so
+    WHICH markets trade depends on scheduling — and with a 5% YES rate the
+    traded subset's win count is then a coin flip. These two tests are about
+    the ECONOMICS (does the engine charge the spread?), not about position
+    scheduling, so they let every market through and the outcome is exact.
+    """
+    s = dict(spec)
+    s["caps"] = {"daily_spend_dollars": 1e6, "per_market_dollars": 5.0,
+                 "total_exposure_dollars": 1e6}
+    s["sizing"] = dict(spec["sizing"])
+    s["sizing"].pop("max_concurrent_positions", None)
+    return s
+
+
 @pytest.fixture
 def fair_db(tmp_path):
     """Longshot FAIRLY priced: YES wins 1-in-20, exactly the 5% that buying NO
@@ -46,7 +64,7 @@ def fair_db(tmp_path):
 
 
 def test_shipped_longshot_strategy_runs_end_to_end(db):
-    spec = load("strategies/sell-cheap-longshots.json")
+    spec = uncapped(load("strategies/sell-cheap-longshots.json"))
     bars = data.load_bars(db)
     assert bars
 
@@ -99,8 +117,13 @@ def test_strategy_loses_when_the_longshot_is_fairly_priced(fair_db):
     """The other half of the claim, and the more important one: the edge comes
     from the mispricing, not from the strategy shape. If this ever passes with
     a profit, the engine is not charging the spread properly."""
-    spec = load("strategies/sell-cheap-longshots.json")
+    spec = uncapped(load("strategies/sell-cheap-longshots.json"))
     trades, rej = engine.run(spec, data.load_bars(fair_db), starting_bankroll=1000.0)
     assert trades, f"no trades placed; rejections={rej}"
     report = metrics.summarize(trades, 1000.0, rej)
+
+    # Exactly fair: 57 NO wins x +$0.25 and 3 NO losses x -$4.75 cancel to zero
+    # gross, so anything the engine charges must push it negative.
+    assert report["gross_pnl"] == pytest.approx(0.0, abs=1e-6)
+    assert report["fees"] > 0
     assert report["net_pnl"] < 0, "no edge means no profit, after spread and fees"

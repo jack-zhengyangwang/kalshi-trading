@@ -18,7 +18,7 @@ See docs/backtester/02_ENGINE.md.
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from wc.backtest import interpret
 
@@ -36,11 +36,30 @@ class Costs:
     """
 
     def __init__(self, fee_rate=0.07, slippage_cents=1.0,
-                 max_volume_share=0.10, settlement_fee=0.0):
+                 max_volume_share=0.10, settlement_fee=0.0,
+                 fill_delay_bars=1, max_fill_age_seconds=3600):
         self.fee_rate = fee_rate
         self.slippage_cents = slippage_cents
         self.max_volume_share = max_volume_share
         self.settlement_fee = settlement_fee
+        # LATENCY. A decision made on bar t fills on bar t+`fill_delay_bars`,
+        # at THAT bar's price.
+        #
+        # Filling on the deciding bar is not merely imprecise, it is BIASED:
+        # the price that triggered the strategy is exactly the price it gets,
+        # and trigger prices — the dip below 10c, the blown-out spread — are
+        # the least likely to still be there when an order arrives. The error
+        # never averages out; every trade gets the same small gift, and across
+        # thousands of trades that compounds into an edge that is not real.
+        #
+        # Set 0 to fill on the deciding bar. That is a DIAGNOSTIC, not a
+        # result: comparing the two is how you find out whether a strategy is
+        # living off its own trigger price.
+        self.fill_delay_bars = int(fill_delay_bars)
+        # An intent whose fill bar arrives this long after the decision is
+        # dropped rather than filled. A market that went quiet for an hour is
+        # not one you would still be sending that order into.
+        self.max_fill_age_seconds = max_fill_age_seconds
 
     def trade_fee(self, price, contracts):
         """Kalshi fee: round_up(fee_rate * C * P * (1 - P)), P as a probability.
@@ -60,6 +79,9 @@ class BarView:
                  "volume", "open_interest", "close_time", "_result", "_history")
 
     def __init__(self, row, history=None):
+        # `history` is a list of trailing {price, open_interest} dicts — the
+        # bars BEFORE this one. It never contains the current bar and never
+        # contains a future one.
         self.ticker = row["ticker"]
         self.series = row["series"]
         self.ts = row["ts"]
@@ -109,7 +131,7 @@ class BarView:
             "yes_ask": self.yes_ask,
             "spread": spread,
             "days_to_resolution": self.days_to_resolution(),
-            "volume_24h": self.volume,
+            "volume": self.volume,
             "open_interest": self.open_interest,
             "model_prob": model_prob,
             "edge": (model_prob - price) if (model_prob is not None and price is not None) else None,
@@ -121,14 +143,25 @@ class BarView:
     def _trailing_features(self, price):
         """Computed on the trailing window only — never on future bars."""
         import statistics
-        prices = [p for p in self._history if p is not None]
-        if len(prices) < 2:
-            return {}
-        first = prices[0]
-        return {
-            "price_change_pct": ((price - first) / first) if (first and price is not None) else None,
-            "volatility": statistics.pstdev(prices) if len(prices) > 1 else 0.0,
-        }
+        out = {}
+
+        prices = [h["price"] for h in self._history if h.get("price") is not None]
+        if len(prices) >= 2:
+            first = prices[0]
+            out["price_change_pct"] = (((price - first) / first)
+                                       if (first and price is not None) else None)
+            out["volatility"] = statistics.pstdev(prices)
+
+        # Open-interest change over the same trailing window. Previously
+        # declared in the vocabulary but never computed, which meant any
+        # strategy gating on it silently never fired — a spec that validated,
+        # ran, placed nothing, and gave no reason why.
+        ois = [h["open_interest"] for h in self._history
+               if h.get("open_interest") is not None]
+        if ois and ois[0]:
+            out["oi_change_pct"] = (self.open_interest - ois[0]) / ois[0]
+
+        return out
 
 
 class Position:
@@ -147,11 +180,15 @@ class Position:
         """Unrealised P&L at the current price."""
         return (price - self.entry_price) * self.contracts
 
-    def exit_ctx(self, price, ts):
+    def exit_ctx(self, price, ts, settled=False):
+        """Exit-only signals. `hold_to_settlement` is True exactly when the bar
+        has reached settlement, so a spec can express "never sell early, take
+        the resolution" as a real terminal condition. It was previously
+        hardcoded False, which made every strategy using it unfireable."""
         return {
             "unrealized_pnl_pct": (self.mark(price) / self.cost) if self.cost else 0.0,
             "days_held": (ts - self.entry_ts) / DAY,
-            "hold_to_settlement": False,
+            "hold_to_settlement": bool(settled),
         }
 
 
@@ -170,13 +207,24 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
     caps = spec["caps"]
     max_positions = spec["sizing"].get("max_concurrent_positions")
 
+    delay = costs.fill_delay_bars
+
     bankroll = float(starting_bankroll)
     open_positions = {}                       # ticker -> Position
     trades = []
     rejections = defaultdict(int)
     spend_by_day = defaultdict(float)
-    history = defaultdict(list)               # ticker -> trailing prices
+    history = defaultdict(list)               # ticker -> trailing {price, oi}
+    vol_24h = defaultdict(deque)              # ticker -> (ts, volume) in the last day
     last_view = {}                            # ticker -> most recent BarView
+
+    # Decisions awaiting a fill bar. Capital they will consume is COMMITTED at
+    # decision time and counted against the caps immediately — otherwise two
+    # intents raised on the same bar could each pass the cap check and then
+    # both fill, breaching it.
+    pending_entry = {}                        # ticker -> intent
+    pending_exit = {}                         # ticker -> intent
+    committed = 0.0
 
     for row in bars:
         view = BarView(row, history=list(history[row["ticker"]]))
@@ -186,13 +234,23 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
             continue
 
         price = mid if side == "yes" else 1.0 - mid
-        history[view.ticker].append(price)
+        history[view.ticker].append(
+            {"price": price, "open_interest": view.open_interest})
         if len(history[view.ticker]) > history_window:
             history[view.ticker].pop(0)
 
         last_view[view.ticker] = view
         mp = (model_probs or {}).get((view.ticker, view.ts))
         ctx = view.to_ctx(side, model_prob=mp)
+        # `volume_24h` means what it says: the volume observed on this ticker in
+        # the trailing 24 hours, not this one bar's. The bar's own figure stays
+        # available as `volume`.
+        window = vol_24h[view.ticker]
+        window.append((view.ts, view.volume))
+        cutoff = view.ts - 86400
+        while window and window[0][0] < cutoff:
+            window.popleft()
+        ctx["volume_24h"] = sum(v for _, v in window)
 
         # ── settle anything past close ───────────────────────────────────────
         pos = open_positions.get(view.ticker)
@@ -200,14 +258,60 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
             trades.append(_settle(pos, view, costs))
             bankroll += trades[-1]["net_pnl"] + pos.cost
             del open_positions[view.ticker]
+            pending_exit.pop(view.ticker, None)     # settlement beat the exit
+            continue
+
+        # ── a pending EXIT reaching its fill bar ─────────────────────────────
+        if view.ticker in pending_exit:
+            intent = pending_exit[view.ticker]
+            intent["bars_left"] -= 1
+            if intent["bars_left"] > 0:
+                continue
+            del pending_exit[view.ticker]
+            if _too_stale(intent, view, costs):
+                # The exit did not happen. The position stays open and the
+                # strategy may fire the exit again on a later bar — which is
+                # what actually happens when a stop cannot be hit.
+                rejections["exit_expired_before_fill"] += 1
+                continue
+            trades.append(_close(pos, view, price, costs))
+            bankroll += trades[-1]["net_pnl"] + pos.cost
+            del open_positions[view.ticker]
+            continue
+
+        # ── a pending ENTRY reaching its fill bar ────────────────────────────
+        if view.ticker in pending_entry:
+            intent = pending_entry[view.ticker]
+            intent["bars_left"] -= 1
+            if intent["bars_left"] > 0:
+                continue
+            del pending_entry[view.ticker]
+            committed -= intent["stake"]
+            if _too_stale(intent, view, costs):
+                rejections["entry_expired_before_fill"] += 1
+                continue
+            filled = _open_position(intent, view, side, costs, bankroll, rejections)
+            if filled:
+                bankroll -= (filled.cost + filled.entry_fee)
+                spend_by_day[int(view.ts // 86400)] += filled.cost
+                open_positions[view.ticker] = filled
             continue
 
         # ── exits, before entries: frees capital and a position slot ─────────
         if pos:
-            if interpret.should_exit(spec, ctx, pos.exit_ctx(price, view.ts)):
-                trades.append(_close(pos, view, price, costs))
-                bankroll += trades[-1]["net_pnl"] + pos.cost
-                del open_positions[view.ticker]
+            if interpret.should_exit(spec, ctx,
+                                     pos.exit_ctx(price, view.ts, settled=False)):
+                if delay <= 0:
+                    trades.append(_close(pos, view, price, costs))
+                    bankroll += trades[-1]["net_pnl"] + pos.cost
+                    del open_positions[view.ticker]
+                else:
+                    # Delayed symmetrically with entries. This is where
+                    # "slipping through a stop" comes from — a stop filled at
+                    # its own trigger price is the most common way a backtested
+                    # stop-loss flatters itself.
+                    pending_exit[view.ticker] = {"decided_ts": view.ts,
+                                                 "bars_left": delay}
             continue                          # never re-enter the same bar
 
         # ── entries ──────────────────────────────────────────────────────────
@@ -220,7 +324,8 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
             rejections["entry_conditions"] += 1
             continue
 
-        if max_positions and len(open_positions) >= max_positions:
+        if max_positions and \
+                len(open_positions) + len(pending_entry) >= max_positions:
             rejections["max_concurrent_positions"] += 1
             continue
 
@@ -231,44 +336,31 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
 
         stake = min(stake, caps["per_market_dollars"])
 
+        # Committed-but-unfilled capital counts against both caps. Checking
+        # only what has already filled would let a burst of same-bar signals
+        # each pass the check and then collectively breach it.
         day = int(view.ts // 86400)
-        if spend_by_day[day] + stake > caps["daily_spend_dollars"]:
+        if spend_by_day[day] + committed + stake > caps["daily_spend_dollars"]:
             rejections["daily_cap"] += 1
             continue
 
-        exposure = sum(p.cost for p in open_positions.values())
+        exposure = sum(p.cost for p in open_positions.values()) + committed
         if exposure + stake > caps["total_exposure_dollars"]:
             rejections["total_exposure_cap"] += 1
             continue
 
-        # take, never make: buy at the ask plus slippage
-        fill = _fill_price(view, side, costs, buying=True)
-        if fill is None or fill <= 0 or fill >= 1:
-            rejections["no_fill_price"] += 1
-            continue
+        intent = {"stake": stake, "decided_ts": view.ts, "model_prob": mp,
+                  "series": view.series, "bars_left": delay}
 
-        contracts = int(stake / fill)
-        if contracts < 1:
-            rejections["below_one_contract"] += 1
-            continue
-
-        cap_by_volume = int((view.volume or 0) * costs.max_volume_share)
-        if cap_by_volume < 1:
-            rejections["insufficient_volume"] += 1
-            continue
-        contracts = min(contracts, cap_by_volume)
-
-        cost = contracts * fill
-        fee = costs.trade_fee(fill, contracts)
-        if cost + fee > bankroll:
-            rejections["insufficient_bankroll"] += 1
-            continue
-
-        bankroll -= (cost + fee)
-        spend_by_day[day] += cost
-        open_positions[view.ticker] = Position(
-            view.ticker, view.series, side, contracts, fill, view.ts,
-            cost, fee, view.days_to_resolution(), mp)
+        if delay <= 0:
+            filled = _open_position(intent, view, side, costs, bankroll, rejections)
+            if filled:
+                bankroll -= (filled.cost + filled.entry_fee)
+                spend_by_day[day] += filled.cost
+                open_positions[view.ticker] = filled
+        else:
+            pending_entry[view.ticker] = intent
+            committed += stake
 
     # Positions still open when the data ends must not vanish — that would
     # silently drop their P&L and flatter the result. Mark them out at the last
@@ -288,6 +380,45 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
         rejections["open_at_end"] += 1
 
     return trades, dict(rejections)
+
+
+def _too_stale(intent, view, costs):
+    """True when the fill bar arrived so long after the decision that the order
+    would no longer have been sent. Guards the case where a market goes quiet
+    and the "next bar" is hours away — filling there would be worse than not
+    modelling latency at all."""
+    limit = costs.max_fill_age_seconds
+    return limit is not None and (view.ts - intent["decided_ts"]) > limit
+
+
+def _open_position(intent, view, side, costs, bankroll, rejections):
+    """Turn an intent into a Position at THIS bar's price, or return None with a
+    counted reason. The decision was made on an earlier bar; the price is
+    always the fill bar's."""
+    fill = _fill_price(view, side, costs, buying=True)
+    if fill is None or fill <= 0 or fill >= 1:
+        rejections["no_fill_price"] += 1
+        return None
+
+    contracts = int(intent["stake"] / fill)
+    if contracts < 1:
+        rejections["below_one_contract"] += 1
+        return None
+
+    cap_by_volume = int((view.volume or 0) * costs.max_volume_share)
+    if cap_by_volume < 1:
+        rejections["insufficient_volume"] += 1
+        return None
+    contracts = min(contracts, cap_by_volume)
+
+    cost = contracts * fill
+    fee = costs.trade_fee(fill, contracts)
+    if cost + fee > bankroll:
+        rejections["insufficient_bankroll"] += 1
+        return None
+
+    return Position(view.ticker, view.series, side, contracts, fill, view.ts,
+                    cost, fee, view.days_to_resolution(), intent["model_prob"])
 
 
 def _fill_price(view, side, costs, buying):

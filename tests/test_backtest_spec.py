@@ -136,3 +136,18 @@ def test_invalid_json_names_the_file(tmp_path):
     p.write_text("{not json")
     with pytest.raises(SpecError, match="invalid JSON"):
         load(str(p))
+
+
+def test_unknown_sizing_key_rejected():
+    """A typo'd knob must fail loudly, not silently do nothing."""
+    s = base()
+    s["sizing"] = {"method": "kelly", "fraction": 0.25, "tvm_rte": 0.08}
+    with pytest.raises(SpecError, match="unknown sizing key"):
+        validate(s)
+
+
+def test_kelly_passthrough_keys_accepted():
+    s = base()
+    s["sizing"] = {"method": "kelly", "fraction": 0.25, "min_edge": 0.03,
+                   "min_bet_dollars": 1.0, "tvm_rate": 0.08}
+    assert validate(s) is s

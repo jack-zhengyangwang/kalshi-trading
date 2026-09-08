@@ -53,9 +53,24 @@ Extra care, because video is a low-quality source:
 
 ## 3. Definition of done
 
-- [ ] Prose -> valid spec for three worked examples
-- [ ] Invalid LLM output rejected with a useful message, retried once, then given up on
-- [ ] Invented signal names always fail
-- [ ] Assumptions surfaced before backtest
-- [ ] Transcript fetch works, with a fallback and a clear error when unavailable
-- [ ] `provenance` recorded on every video-authored spec
+- [x] Prose -> valid spec, verified against the live API
+- [x] Invalid LLM output rejected with a useful message, retried once, then given up on
+- [x] Invented signal names always fail
+- [x] Assumptions surfaced before backtest — printed to stderr before the file is written
+- [x] Transcript fetch works, with a yt-dlp fallback and a clear error when unavailable
+- [x] `provenance` recorded on every video-authored spec
+
+### Notes from building it
+
+**The vocabulary in the prompt is generated from `spec.py`, never restated.** A
+hand-maintained copy drifts, and the model is then told about signals the
+validator rejects — which reads as hallucination when it is actually
+misinformation.
+
+**Reasoning models put a `ThinkingBlock` first,** so `resp.content[0].text`
+raises. `author.response_text()` joins every text block instead.
+
+**`temperature` was removed from `messages.create` in `anthropic>=1.4`.** It was
+still being passed in `brain.py`, `brain_v4.py`, and `lib/brain_model.py`, where
+the caller swallowed the exception into an empty dict — so the live system's LLM
+leg had been silently doing nothing. Fixed 2026-09-08.

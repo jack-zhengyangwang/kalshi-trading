@@ -332,7 +332,13 @@ class BrainV4:
             try:
                 resp = client.messages.create(
                     model=self.config.get("claude_model", "claude-haiku-4-5-20251001"),
-                    max_tokens=200, temperature=0,
+                    # temperature was removed from messages.create in anthropic>=1.4;
+
+                    # passing it raised on EVERY call, and the caller swallowed the
+
+                    # exception into an empty dict, so the LLM leg silently did nothing.
+
+                    max_tokens=200,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 data = self._parse_json(resp.content[0].text.strip())
@@ -360,7 +366,13 @@ class BrainV4:
             try:
                 resp = client.messages.create(
                     model=self.config.get("claude_model", "claude-haiku-4-5-20251001"),
-                    max_tokens=200, temperature=0,
+                    # temperature was removed from messages.create in anthropic>=1.4;
+
+                    # passing it raised on EVERY call, and the caller swallowed the
+
+                    # exception into an empty dict, so the LLM leg silently did nothing.
+
+                    max_tokens=200,
                     messages=[{"role": "user", "content": prompt}])
                 data = self._parse_json(resp.content[0].text.strip())
                 break
