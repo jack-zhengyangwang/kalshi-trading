@@ -393,3 +393,78 @@ class FormView(FactsView):
                 p = self.draw_share
             out[(b["ticker"], b["ts"])] = min(0.98, max(0.02, p))
         return out
+
+
+@register
+class KnowledgeView(FactsView):
+    """Believes the soccer knowledge base: Elo, form, home advantage, H2H.
+
+    Everything it reads was rebuilt by walking finished matches forward, so a
+    fact dated day D reflects only matches finished by day D. That makes a
+    backtest using this view genuine promotion evidence rather than ranking
+    evidence — the distinction that separates it from `structural`.
+
+    A team the knowledge base has never seen has no facts, so this view
+    declines to price it. That is deliberate: a desk entering an unfamiliar
+    league should know that it knows nothing, and earn a record one match at a
+    time rather than inherit a default.
+    """
+    name = "knowledge"
+    features = ("elo", "form_ppg", "home_win_rate", "away_win_rate",
+                "matches_seen")
+
+    def __init__(self, facts_db=None, elo_weight=0.6, form_weight=0.25,
+                 home_weight=0.15, draw_share=0.26, min_matches=3):
+        super().__init__(facts_db)
+        self.elo_weight = float(elo_weight)
+        self.form_weight = float(form_weight)
+        self.home_weight = float(home_weight)
+        self.draw_share = float(draw_share)
+        self.min_matches = int(min_matches)
+
+    def price(self, bars):
+        self._load()
+        out = {}
+        for b in bars:
+            home, away, sub = b["home"], b["away"], b["sub_title"]
+            if not home or not away or not sub:
+                continue
+            ts = b["ts"]
+
+            # Refuse to price a fixture we have barely seen. A thin record is
+            # not a small edge, it is no edge.
+            if (self.fact(home, "matches_seen", ts) or 0) < self.min_matches:
+                continue
+            if (self.fact(away, "matches_seen", ts) or 0) < self.min_matches:
+                continue
+
+            eh = self.fact(home, "elo", ts)
+            ea = self.fact(away, "elo", ts)
+            if eh is None or ea is None:
+                continue
+            elo_p = 1.0 / (1.0 + 10 ** (-((eh + 60.0) - ea) / 400.0))
+
+            fh = self.fact(home, "form_ppg", ts)
+            fa = self.fact(away, "form_ppg", ts)
+            form_p = 0.5 if (fh is None or fa is None) else \
+                min(0.95, max(0.05, 0.5 + (fh - fa) / 6.0))
+
+            hw = self.fact(home, "home_win_rate", ts)
+            aw = self.fact(away, "away_win_rate", ts)
+            venue_p = 0.5 if (hw is None or aw is None) else \
+                min(0.95, max(0.05, 0.5 + (hw - aw) / 2.0))
+
+            blended = (self.elo_weight * elo_p + self.form_weight * form_p
+                       + self.home_weight * venue_p)
+            total = self.elo_weight + self.form_weight + self.home_weight
+            blended /= total
+
+            live = 1.0 - self.draw_share
+            if _same(sub, home):
+                p = blended * live
+            elif _same(sub, away):
+                p = (1.0 - blended) * live
+            else:
+                p = self.draw_share
+            out[(b["ticker"], b["ts"])] = min(0.98, max(0.02, p))
+        return out

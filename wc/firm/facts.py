@@ -30,7 +30,11 @@ import time
 
 from wc import paths
 
-DB_PATH = os.path.join(paths.ROOT, "data", "facts.db")
+# The firm's SECOND database. Kept separate from data/market_history.db on
+# purpose: financial data and soccer knowledge answer different questions, decay
+# at different rates, and carry different lookahead risks. One file would invite
+# a join that quietly reads a fact from after the bar it is pricing.
+DB_PATH = os.path.join(paths.ROOT, "data", "soccer.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (

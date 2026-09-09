@@ -117,16 +117,69 @@ holds. There is an existing one to copy.
 
 ---
 
+## The two databases
+
+The firm keeps knowledge apart from money, deliberately.
+
+| | holds | rebuilt by |
+|---|---|---|
+| `data/market_history.db` | Kalshi candles, prices, outcomes | `wc.backtest.backfill` |
+| `data/soccer.db` | Elo, form, head-to-head, home/away rates, news | `wc.firm.sources.derived` + `espn` |
+
+They are separate files because they answer different questions and carry
+different lookahead risks. One file invites a join that quietly reads a fact
+from after the bar it is pricing.
+
+**Everything in `soccer.db` from `derived.py` is point-in-time**: it is rebuilt
+by walking finished matches forward, so a fact dated day D reflects only matches
+finished by day D. No cheat needed, and a backtest using it is genuine
+promotion evidence.
+
+`espn.py` is the exception — ESPN serves the current world, so news and
+bookmaker odds accrue forward only.
+
 ## Running the firm
 
 ```bash
-python3 -m wc.backtest.backfill --days 60          # get history
-python3 -m wc.firm.run                             # every PM competes
+python3 -m wc.backtest.backfill --days 60          # 1. financial history
+python3 -m wc.firm.sources.derived                 # 2. soccer knowledge
+python3 -m wc.firm.run                             # 3. every PM competes
 python3 -m wc.backtest.dashboard --results 'data/backtests/pm-*.json'
 ```
 
 `--pm <name>` runs one. `--assume-fills` answers "is there an edge at all"
 before worrying about liquidity.
+
+## How a PM learns
+
+A PM walks the archive forward and keeps a **journal** — its own record, per
+league and per price band, written only when a bet settles.
+
+- A league it has never traded gets a normal stake. Inexperience is not a
+  reason to size down; it is a reason to find out.
+- After ~8 settled bets it has earned an opinion about its own reliability
+  there, and a Brier worse than a coin flip scales the stake toward a floor.
+- A good run never scales it **up**. That would be a martingale.
+
+This is why a desk can enter a thin league it knows nothing about: it starts
+blind, logs what happens, and by day 30 has a record it earned. The knowledge
+base tells it about the world; the journal tells it about itself.
+
+Set `"learns": false` on a PM to turn it off — useful for a control.
+
+## A new PM joins
+
+1. Write `config/pms/<name>.json`.
+2. `python3 -m wc.firm.run --pm <name>` — it completes its own backtest over
+   the same archive, on the same fee and latency model, with the same
+   knowledge every other desk had.
+3. Read it against the leaderboard, and against `baseline-market`.
+4. If it clears gate 1 in [07_PROMOTION.md](backtester/07_PROMOTION.md), it
+   joins the arena for forward testing.
+
+No registration and no code. The comparison is fair because every desk is
+scored on the same bars with the same costs — the only thing that differs is
+what it believes.
 
 ---
 

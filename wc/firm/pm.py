@@ -60,7 +60,7 @@ class PortfolioManager:
     """A view, a bankroll, and the agents that trade it."""
 
     def __init__(self, name, view, agents, bankroll=1000.0, allocation="equal",
-                 caps=None, description=""):
+                 caps=None, description="", learns=True):
         self.name = name
         self.view = view
         self.agents = agents
@@ -68,6 +68,9 @@ class PortfolioManager:
         self.allocation = allocation
         self.caps = caps or {}
         self.description = description
+        # Whether this PM keeps a journal and sizes on its own record. On by
+        # default: a desk that never learns from being wrong is not a desk.
+        self.learns = bool(learns)
         self.allocate()
 
     # ── capital ──────────────────────────────────────────────────────────────
@@ -189,7 +192,8 @@ def load(path):
     return PortfolioManager(
         name=cfg["name"], view=view, agents=agents,
         bankroll=cfg["bankroll"], allocation=cfg.get("allocation", "equal"),
-        caps=cfg.get("caps"), description=cfg.get("description", ""))
+        caps=cfg.get("caps"), description=cfg.get("description", ""),
+        learns=cfg.get("learns", True))
 
 
 def load_all(pattern=None):

@@ -23,6 +23,7 @@ import sys
 
 from wc import paths
 from wc.backtest import data, engine, metrics
+from wc.firm import journal as journal_mod
 from wc.firm import pm as pm_mod
 
 RESULTS_DIR = os.path.join(paths.ROOT, "data", "backtests")
@@ -37,7 +38,9 @@ def backtest_pm(manager, bars, costs=None):
     """Replay one PM. Returns a report with per-agent breakdown."""
     probs = manager.view.price(bars)
 
-    books = [engine.Book(a.name, a.spec, a.bankroll) for a in manager.agents]
+    jrnl = journal_mod.Journal(manager.name) if manager.learns else None
+    books = [engine.Book(a.name, a.spec, a.bankroll, journal=jrnl)
+             for a in manager.agents]
     trades, rej = engine.run_book(books, bars, costs=costs, model_probs=probs,
                                  pm_caps=manager.caps)
 
@@ -62,6 +65,10 @@ def backtest_pm(manager, bars, costs=None):
             "net_pnl": round(sum(t["net_pnl"] for t in own), 4),
             "spec": a.spec["name"],
         }
+
+    if jrnl is not None:
+        report["journal"] = jrnl.summary()
+        report["journal_entries"] = len(jrnl)
 
     if manager.carries_lookahead:
         report["lookahead_risk"] = (

@@ -252,9 +252,10 @@ class Book:
     """
 
     __slots__ = ("name", "spec", "bankroll", "start_bankroll", "positions",
-                 "pending_entry", "pending_exit", "committed", "spend_by_day")
+                 "pending_entry", "pending_exit", "committed", "spend_by_day",
+                 "journal")
 
-    def __init__(self, name, spec, bankroll):
+    def __init__(self, name, spec, bankroll, journal=None):
         self.name = name
         self.spec = spec
         self.bankroll = float(bankroll)
@@ -264,6 +265,11 @@ class Book:
         self.pending_exit = {}
         self.committed = 0.0
         self.spend_by_day = defaultdict(float)
+        # What this PM has learned so far. Written when a bet settles, read
+        # when the next one is sized — so the desk that has been wrong about a
+        # league twenty times sizes down there, and the one that has never
+        # traded it sizes normally. See wc/firm/journal.py.
+        self.journal = journal
 
     def exposure(self):
         return sum(p.cost for p in self.positions.values()) + self.committed
@@ -353,6 +359,13 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
                 trades.append(rec)
                 rec["agent"] = book.name
                 book.bankroll += rec["net_pnl"] + pos.cost
+                # The desk learns HERE, in the middle of the walk — not at the
+                # end. A lesson recorded after the run would never have changed
+                # a single decision, which is not learning, it is bookkeeping.
+                if book.journal is not None and rec.get("settled"):
+                    book.journal.record(rec["exit_ts"], rec.get("series"),
+                                        rec.get("model_prob"), rec.get("outcome"),
+                                        rec["net_pnl"])
                 del book.positions[view.ticker]
 
             pos = book.positions.get(view.ticker)
@@ -418,6 +431,11 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
             if stake <= 0:
                 rejections["zero_size"] += 1
                 continue
+            if book.journal is not None:
+                stake *= book.journal.size_multiplier(view.series)
+                if stake <= 0:
+                    rejections["journal_stood_down"] += 1
+                    continue
             stake = min(stake, caps["per_market_dollars"])
 
             if book.spend_by_day[day] + book.committed + stake > caps["daily_spend_dollars"]:
