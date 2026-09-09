@@ -1,0 +1,9 @@
+{
+  "name": "baseline-market",
+  "description": "The honest zero. Believes the book is right, so its edge is exactly zero everywhere and it can only lose the spread and fees. Promotion gate 2.5 needs something to beat; this is it. A PM that cannot beat this has variance, not edge.",
+  "view": {"view": "market"},
+  "bankroll": 1000.0,
+  "allocation": "equal",
+  "agents": [{"name": "edge-taker", "spec": "strategies/agents/edge-taker.json"}],
+  "caps": {"daily_spend_dollars": 100.0, "total_exposure_dollars": 400.0}
+}

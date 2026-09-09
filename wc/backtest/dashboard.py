@@ -167,6 +167,41 @@ def _warnings(report):
     return "".join(out)
 
 
+def _provenance(report):
+    """A PM is identified by what it BELIEVES; a bare strategy by its spec."""
+    if report.get("view"):
+        return "view <code>" + html.escape(str(report["view"])) + "</code>"
+    return "spec <code>" + html.escape(str(report.get("spec_path", "—"))) + "</code>"
+
+
+def _agents_table(report):
+    """Per-agent P&L inside a PM's book.
+
+    A desk whose profit comes from one agent while the others bleed is a
+    different thing from a desk that is broadly right, and the aggregate hides
+    which one you have.
+    """
+    agents = report.get("agents") or {}
+    if not agents:
+        return ""
+    rows = "".join(
+        "<tr><td>" + html.escape(str(n)) + "</td>"
+        "<td class=r>$" + format(a.get("allocated", 0), ",.0f") + "</td>"
+        "<td class=r>" + format(a.get("n_trades", 0), ",") + "</td>"
+        "<td class='r " + ("pos" if (a.get("net_pnl") or 0) > 0 else "neg") + "'>"
+        + _money(a.get("net_pnl")) + "</td>"
+        "<td><code>" + html.escape(str(a.get("spec", ""))) + "</code></td></tr>"
+        for n, a in sorted(agents.items(),
+                           key=lambda kv: -(kv[1].get("net_pnl") or 0)))
+    return ("<h3>The desk</h3>"
+            '<p class="sub">Each agent trades the PM&rsquo;s view with its own '
+            "capital. One winner carrying four losers is not the same desk as "
+            "four steady ones.</p>"
+            "<table><thead><tr><th>agent</th><th class=r>allocated</th>"
+            "<th class=r>trades</th><th class=r>net</th><th>spec</th></tr>"
+            "</thead><tbody>" + rows + "</tbody></table>")
+
+
 def render_strategy(report):
     net = report.get("net_pnl")
     sens = report.get("latency_sensitivity")
@@ -204,11 +239,11 @@ def render_strategy(report):
     return f'''<section>
   <h2>{html.escape(report.get("strategy", "unnamed"))}</h2>
   <p class="sub">{html.escape(report.get("label", ""))} ·
-     {report.get("bars", 0):,} bars · spec
-     <code>{html.escape(report.get("spec_path", "—"))}</code></p>
+     {report.get("bars", 0):,} bars · {_provenance(report)}</p>
   {_warnings(report)}
   <div class="stats">{stats}</div>
   {f'<h3>Cross-checks</h3><div class="stats">{gates}</div>' if gates.strip() else ''}
+  {_agents_table(report)}
   <h3>Equity</h3>
   {equity_svg(report.get("equity_curve") or [])}
   <h3>Calibration</h3>
@@ -242,7 +277,9 @@ def render_leaderboard(reports):
             flags += ' <span class="flag" title="edge is mostly its own trigger price">⚠ latency</span>'
         if r.get("lookahead_risk"):
             flags += ' <span class="flag danger" title="model-fitted lookahead — not promotion evidence">⚠ lookahead</span>'
-        rows += (f"<tr><td>{html.escape(r.get('strategy', '?'))}{flags}</td>"
+        vw = r.get("view")
+        vtag = ('<br><span class=vw>' + html.escape(str(vw)) + '</span>') if vw else ""
+        rows += (f"<tr><td>{html.escape(r.get('strategy', '?'))}{flags}{vtag}</td>"
                  f"<td class='r {'pos' if (r.get('net_pnl') or 0) > 0 else 'neg'}'>"
                  f"{_money(r.get('net_pnl'))}</td>"
                  f"<td class='r {'pos' if (hold or 0) > 0 else 'neg'}'>{_money(hold)}</td>"
@@ -255,7 +292,7 @@ def render_leaderboard(reports):
      number would be ranking on overfitting. A flagged row is <em>not</em>
      promotion evidence however good the number looks — see
      <code>docs/backtester/07_PROMOTION.md</code>.</p>
-  <table><thead><tr><th>strategy</th><th class=r>OOS net</th>
+  <table><thead><tr><th>strategy / view</th><th class=r>OOS net</th>
   <th class=r>held out</th><th class=r>trades</th><th class=r>Brier</th>
   <th class=r>latency ×</th></tr></thead><tbody>{rows}</tbody></table>
 </section>'''
@@ -310,6 +347,7 @@ td.r,th.r{text-align:right}
 .ax{font-size:10px;fill:var(--dim)}
 .ax.end{text-anchor:end}
 .empty{color:var(--dim);font-size:.86rem;font-style:italic}
+.vw{font-size:.72rem;color:var(--dim)}
 .flag{font-size:.68rem;color:var(--warn);background:var(--warnbg);
   padding:.1em .4em;border-radius:4px;white-space:nowrap;margin-left:.25rem}
 .flag.danger{color:var(--danger);background:var(--dangerbg)}

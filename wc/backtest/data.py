@@ -49,7 +49,16 @@ CREATE TABLE IF NOT EXISTS markets (
   away       TEXT,
   close_time INTEGER,
   status     TEXT,
+  -- 'yes' | 'no' | 'void' | NULL-while-open.
+  --
+  -- VOID is a real, common third outcome, not an edge case: ~13% of settled
+  -- soccer markets are games that were cancelled or postponed, and Kalshi
+  -- settles every leg at a fair price summing to 1.00 rather than 0/1. It
+  -- reports those as result='scalar' with a settlement_value_dollars between
+  -- 0 and 1. Treating them as a loss would be wrong (you get most of your
+  -- stake back); treating them as unresolved would re-sweep them forever.
   result     TEXT,
+  settlement_value REAL,          -- dollars per contract: 1.0 yes, 0.0 no, else void
   first_seen INTEGER NOT NULL,
   last_seen  INTEGER NOT NULL
 );
@@ -62,6 +71,29 @@ CREATE TABLE IF NOT EXISTS trades (
   count      INTEGER,
   taker_side TEXT
 );
+
+-- Historical candlesticks pulled from Kalshi's archive. A SEPARATE TABLE from
+-- `candles` on purpose: these are true OHLC bars at 1-60 minute resolution,
+-- while `candles` holds point-in-time snapshots at the collector's interval.
+-- Mixing them in one table would let a backtest silently report a single P&L
+-- over two different kinds of measurement, and the reader would never know.
+--
+-- They also answer different questions. Backfill sees only markets Kalshi
+-- still lists, so it carries survivorship bias by construction; the collector's
+-- first_seen is what defeats that. Neither replaces the other.
+CREATE TABLE IF NOT EXISTS backfill_candles (
+  ticker        TEXT    NOT NULL,
+  ts            INTEGER NOT NULL,      -- end_period_ts, UTC epoch seconds
+  interval_min  INTEGER NOT NULL,      -- 1 | 60 | 1440
+  yes_bid       INTEGER,               -- cents, period close
+  yes_ask       INTEGER,
+  open          INTEGER, high INTEGER, low INTEGER, close INTEGER,
+  volume        INTEGER,
+  open_interest INTEGER,
+  PRIMARY KEY (ticker, ts, interval_min)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backfill_ts ON backfill_candles(ts);
 
 -- backfill progress, so an interrupted run resumes instead of restarting
 CREATE TABLE IF NOT EXISTS ingest_state (
@@ -98,6 +130,8 @@ def _migrate(con):
     for col in ("sub_title", "event_ticker", "home", "away"):
         if col not in have:
             con.execute(f"ALTER TABLE markets ADD COLUMN {col} TEXT")
+    if "settlement_value" not in have:
+        con.execute("ALTER TABLE markets ADD COLUMN settlement_value REAL")
     con.commit()
 
 
@@ -159,15 +193,19 @@ def upsert_trades(con, rows):
     return len(rows)
 
 
-def set_result(con, ticker, status, result):
+def set_result(con, ticker, status, result, settlement_value=None):
     """Attach the outcome to a market once Kalshi has settled it.
 
     Separate from upsert_market because the settlement sweep re-fetches ONLY
     unresolved tickers — a market's result never changes once written, so
     re-reading settled markets forever would be pure API waste.
+
+    `result` is 'yes', 'no', or 'void'. A void still gets written, precisely so
+    it stops being re-swept; `settlement_value` carries what it actually paid.
     """
-    con.execute("UPDATE markets SET status = ?, result = ? WHERE ticker = ?",
-                (status, result, ticker))
+    con.execute("UPDATE markets SET status = ?, result = ?, "
+                "settlement_value = ? WHERE ticker = ?",
+                (status, result, settlement_value, ticker))
     con.commit()
 
 
@@ -210,19 +248,32 @@ def get_progress(con, ticker):
 
 # ── reads ─────────────────────────────────────────────────────────────────────
 
-def load_bars(con, start_ts=None, end_ts=None, series=None, tickers=None):
+SOURCES = {"collector": "candles", "backfill": "backfill_candles"}
+
+
+def load_bars(con, start_ts=None, end_ts=None, series=None, tickers=None,
+              source="backfill", interval_min=None):
     """Every candle in the window, joined to its market, in CHRONOLOGICAL order
     across all markets.
 
     The ordering is load-bearing: the engine must see markets interleaved in
     time, or portfolio-level caps (daily spend, total exposure, concurrent
     positions) can never bind, because it would never hold two markets at once.
+
+    `source` picks ONE table and never unions them. 'backfill' is true OHLC from
+    Kalshi's archive and is what a backtest should read; 'collector' is the
+    forward snapshot record, which belongs to forward testing. A run that mixed
+    them would report one number over two different kinds of measurement.
     """
-    q = ["""SELECT c.ticker, c.ts, c.yes_bid, c.yes_ask, c.open, c.high, c.low,
+    if source not in SOURCES:
+        raise ValueError(f"source must be one of {sorted(SOURCES)}, got {source!r}")
+    table = SOURCES[source]
+
+    q = [f"""SELECT c.ticker, c.ts, c.yes_bid, c.yes_ask, c.open, c.high, c.low,
                    c.close, c.volume, c.open_interest,
                    m.series, m.title, m.sub_title, m.event_ticker, m.home,
-                   m.away, m.close_time, m.status, m.result
-            FROM candles c JOIN markets m ON m.ticker = c.ticker"""]
+                   m.away, m.close_time, m.status, m.result, m.settlement_value
+            FROM {table} c JOIN markets m ON m.ticker = c.ticker"""]
     where, args = [], []
     if start_ts is not None:
         where.append("c.ts >= ?"); args.append(int(start_ts))
@@ -232,10 +283,35 @@ def load_bars(con, start_ts=None, end_ts=None, series=None, tickers=None):
         where.append(f"m.series IN ({','.join('?' * len(series))})"); args += list(series)
     if tickers:
         where.append(f"c.ticker IN ({','.join('?' * len(tickers))})"); args += list(tickers)
+    if interval_min is not None and source == "backfill":
+        where.append("c.interval_min = ?"); args.append(int(interval_min))
     if where:
         q.append("WHERE " + " AND ".join(where))
     q.append("ORDER BY c.ts ASC, c.ticker ASC")     # ticker breaks ties deterministically
     return con.execute(" ".join(q), args).fetchall()
+
+
+def upsert_backfill_candles(con, ticker, interval_min, rows):
+    """Insert archive candles. Idempotent on (ticker, ts, interval_min), so the
+    same window can be re-pulled at a different resolution without either
+    overwriting the other."""
+    payload = [(ticker, int(r["ts"]), int(interval_min),
+                r.get("yes_bid"), r.get("yes_ask"),
+                r.get("open"), r.get("high"), r.get("low"), r.get("close"),
+                r.get("volume"), r.get("open_interest")) for r in rows]
+    con.executemany(
+        "INSERT OR REPLACE INTO backfill_candles "
+        "(ticker, ts, interval_min, yes_bid, yes_ask, open, high, low, close, "
+        " volume, open_interest) VALUES (?,?,?,?,?,?,?,?,?,?,?)", payload)
+    con.commit()
+    return len(payload)
+
+
+def backfill_candle_count(con, interval_min=None):
+    if interval_min is None:
+        return con.execute("SELECT COUNT(*) n FROM backfill_candles").fetchone()["n"]
+    return con.execute("SELECT COUNT(*) n FROM backfill_candles WHERE interval_min = ?",
+                       (int(interval_min),)).fetchone()["n"]
 
 
 def market_count(con):

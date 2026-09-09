@@ -9,6 +9,7 @@ See docs/backtester/02_ENGINE.md section 4.
 """
 from __future__ import annotations
 
+import datetime as dt
 import math
 
 DAY = 86400.0
@@ -134,10 +135,16 @@ def _bucket(value, buckets):
 
 
 def segment(trades, key):
-    """Group trades by 'days_to_resolution', 'price', or 'series'."""
+    """Group trades by 'days_to_resolution', 'price', 'series', or 'month'."""
     groups = {}
     for t in trades:
-        if key == "days_to_resolution":
+        if key == "month":
+            # WHEN it makes money. An edge that lived in one month and died is
+            # the single most common thing a headline P&L hides.
+            ts = t.get("exit_ts")
+            name = (dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m")
+                    if ts else "unknown")
+        elif key == "days_to_resolution":
             v = t.get("entry_days_to_resolution")
             name = _bucket(v, DTR_BUCKETS) if v is not None else "unknown"
         elif key == "price":
@@ -182,6 +189,9 @@ def summarize(trades, starting_bankroll, rejections=None, label="backtest"):
         "n_trades": len(trades),
         "n_settled": sum(1 for t in trades if t.get("settled")),
         "n_liquidated_at_end": sum(1 for t in trades if t.get("liquidated_at_end")),
+        # Voids are counted but excluded from every forecasting metric: a
+        # cancelled match makes a forecast unresolved, not wrong.
+        "n_voided": sum(1 for t in trades if t.get("voided")),
         "starting_bankroll": starting_bankroll,
         "ending_bankroll": round(starting_bankroll + net, 4),
 
@@ -207,6 +217,7 @@ def summarize(trades, starting_bankroll, rejections=None, label="backtest"):
         "by_days_to_resolution": segment(trades, "days_to_resolution"),
         "by_price": segment(trades, "price"),
         "by_series": segment(trades, "series"),
+        "by_month": segment(trades, "month"),
 
         "rejections": rejections or {},
         "equity_curve": [[ts, round(eq, 4)] for ts, eq in curve],

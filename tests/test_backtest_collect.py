@@ -222,7 +222,7 @@ def test_collected_rows_load_as_bars(con):
     client = FakeClient({"S": [mkt("T1"), mkt("T2")]})
     collect.run_once(con, client, ["S"], now=1_000_000_000, bucket=300)
     collect.run_once(con, client, ["S"], now=1_000_000_300, bucket=300)
-    bars = data.load_bars(con)
+    bars = data.load_bars(con, source="collector")
     assert len(bars) == 4
     assert [b["ts"] for b in bars] == sorted(b["ts"] for b in bars)
     assert bars[0]["series"] and bars[0]["close_time"]
@@ -315,5 +315,50 @@ def test_bars_carry_the_fixture_through_to_the_pricer(con):
     m["yes_sub_title"] = "Fulham"
     client = FakeClient({"KXEPLGAME": [m]})
     collect.run_once(con, client, ["KXEPLGAME"], now=1_000_000_000)
-    bar = data.load_bars(con)[0]
+    bar = data.load_bars(con, source="collector")[0]
     assert bar["home"] == "Fulham" and bar["sub_title"] == "Fulham"
+
+
+# ── voids: the third outcome ──────────────────────────────────────────────────
+
+def settled(result, value, status="finalized"):
+    return {"status": status, "result": result, "settlement_value_dollars": value}
+
+
+def test_yes_and_no_carry_their_payout():
+    assert collect.settlement_outcome(settled("yes", "1.0000")) == ("yes", 1.0)
+    assert collect.settlement_outcome(settled("no", "0.0000")) == ("no", 0.0)
+
+
+def test_scalar_is_recorded_as_a_void_with_its_fair_price():
+    """~13% of settled soccer markets are cancelled or postponed games. Kalshi
+    settles every leg at a fair price summing to 1.00 and reports
+    result='scalar'. Skipping those re-sweeps them forever."""
+    assert collect.settlement_outcome(settled("scalar", "0.5900")) == ("void", 0.59)
+
+
+def test_a_void_without_a_payout_is_left_unresolved():
+    """Recording it as void with an unknown payout would silently invent a
+    P&L of zero."""
+    assert collect.settlement_outcome(settled("scalar", "")) == (None, None)
+    assert collect.settlement_outcome(settled("scalar", None)) == (None, None)
+
+
+def test_an_unfinished_market_stays_in_the_queue():
+    assert collect.settlement_outcome(
+        {"status": "active", "result": "", "settlement_value_dollars": None}) == (None, None)
+
+
+def test_void_is_persisted_and_stops_being_reswept(con):
+    m = mkt("T1", close_time=PAST)
+    client = FakeClient({"S": [m]}, by_ticker={
+        "T1": dict(m, status="finalized", result="scalar",
+                   settlement_value_dollars="0.3300")})
+    collect.run_once(con, client, ["S"], now=1_000_000_000)
+    r = con.execute("SELECT result, settlement_value FROM markets").fetchone()
+    assert r["result"] == "void"
+    assert r["settlement_value"] == pytest.approx(0.33)
+
+    client.ticker_calls.clear()
+    collect.run_once(con, client, ["S"], now=1_000_000_400)
+    assert client.ticker_calls == [], "a recorded void must not be re-swept"

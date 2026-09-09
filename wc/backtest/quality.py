@@ -51,21 +51,29 @@ def settlement_coverage(con):
     row = con.execute("""
         SELECT
           SUM(CASE WHEN result IN ('yes','no') THEN 1 ELSE 0 END) AS resolved,
+          SUM(CASE WHEN result = 'void' THEN 1 ELSE 0 END) AS voided,
           SUM(CASE WHEN result IS NULL AND close_time IS NOT NULL
                     AND close_time < strftime('%s','now') THEN 1 ELSE 0 END) AS past_close_unresolved,
           COUNT(*) AS total
         FROM markets""").fetchone()
     resolved = row["resolved"] or 0
+    voided = row["voided"] or 0
     pending = row["past_close_unresolved"] or 0
-    denom = resolved + pending
+    # A void IS settled — the game was called off and Kalshi paid out a fair
+    # price. Counting it as missing would report a permanent data problem that
+    # no amount of collecting could ever fix.
+    denom = resolved + voided + pending
     return {
         "resolved": resolved,
+        "voided": voided,
         "past_close_but_unresolved": pending,
         "total_markets": row["total"] or 0,
-        "settlement_rate": round(resolved / denom, 4) if denom else None,
+        "settlement_rate": round((resolved + voided) / denom, 4) if denom else None,
+        "void_rate": round(voided / (resolved + voided), 4) if (resolved + voided) else None,
         "note": ("past_close_but_unresolved should trend to ~0. A number that "
                  "grows every cycle means the settlement sweep is not running "
-                 "or is failing silently."),
+                 "or is failing silently. Voids (cancelled/postponed games, "
+                 "~13% of soccer markets) are settled, not missing."),
     }
 
 
@@ -185,7 +193,7 @@ def by_series(con):
         SELECT m.series,
                COUNT(DISTINCT m.ticker) AS markets,
                COUNT(c.ts)              AS candles,
-               SUM(CASE WHEN m.result IN ('yes','no') THEN 1 ELSE 0 END) AS resolved
+               SUM(CASE WHEN m.result IN ('yes','no','void') THEN 1 ELSE 0 END) AS resolved
         FROM markets m LEFT JOIN candles c ON c.ticker = m.ticker
         GROUP BY m.series ORDER BY candles DESC""").fetchall()
     return [{"series": r["series"], "markets": r["markets"],
@@ -253,8 +261,8 @@ def main(argv=None):
     print(f"  span     {c['first_candle']} -> {c['last_candle']} "
           f"({c['span_days']} days)")
     rate = s["settlement_rate"]
-    print(f"  settled  {s['resolved']:,} resolved, {s['past_close_but_unresolved']:,} "
-          f"past close awaiting result"
+    print(f"  settled  {s['resolved']:,} resolved, {s.get('voided', 0):,} voided, "
+          f"{s['past_close_but_unresolved']:,} past close awaiting result"
           + (f" ({rate:.1%} coverage)" if rate is not None else ""))
     print(f"  gaps     {r['gaps']['markets_with_gaps']} markets, "
           f"{r['gaps']['total_missing_snapshots']:,} missing snapshots")

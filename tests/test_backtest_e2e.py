@@ -65,7 +65,7 @@ def fair_db(tmp_path):
 
 def test_shipped_longshot_strategy_runs_end_to_end(db):
     spec = uncapped(load("strategies/sell-cheap-longshots.json"))
-    bars = data.load_bars(db)
+    bars = data.load_bars(db, source="collector")
     assert bars
 
     trades, rej = engine.run(spec, bars, starting_bankroll=1000.0)
@@ -82,7 +82,7 @@ def test_shipped_longshot_strategy_runs_end_to_end(db):
 
 def test_metrics_report_has_every_required_section(db):
     spec = load("strategies/sell-cheap-longshots.json")
-    trades, rej = engine.run(spec, data.load_bars(db), 1000.0)
+    trades, rej = engine.run(spec, data.load_bars(db, source="collector"), 1000.0)
     r = metrics.summarize(trades, 1000.0, rej)
 
     for key in ("net_pnl", "gross_pnl", "fees", "max_drawdown", "sharpe",
@@ -95,7 +95,7 @@ def test_metrics_report_has_every_required_section(db):
 
 def test_walk_forward_reports_out_of_sample(db):
     spec = load("strategies/sell-cheap-longshots.json")
-    trades, rej, windows = walk_forward(spec, data.load_bars(db), n_windows=4,
+    trades, rej, windows = walk_forward(spec, data.load_bars(db, source="collector"), n_windows=4,
                                         starting_bankroll=1000.0)
     assert windows, "walk-forward produced no windows"
     assert all("net_pnl" in w for w in windows)
@@ -105,8 +105,8 @@ def test_walk_forward_reports_out_of_sample(db):
 
 def test_calibration_and_brier_computed_on_settled_trades(db):
     spec = load("strategies/model-edge.json")
-    probs = {(b["ticker"], b["ts"]): 0.30 for b in data.load_bars(db)}
-    trades, _ = engine.run(spec, data.load_bars(db), 1000.0, model_probs=probs)
+    probs = {(b["ticker"], b["ts"]): 0.30 for b in data.load_bars(db, source="collector")}
+    trades, _ = engine.run(spec, data.load_bars(db, source="collector"), 1000.0, model_probs=probs)
     if trades:
         r = metrics.summarize(trades, 1000.0)
         assert r["brier"] is not None
@@ -118,7 +118,7 @@ def test_strategy_loses_when_the_longshot_is_fairly_priced(fair_db):
     from the mispricing, not from the strategy shape. If this ever passes with
     a profit, the engine is not charging the spread properly."""
     spec = uncapped(load("strategies/sell-cheap-longshots.json"))
-    trades, rej = engine.run(spec, data.load_bars(fair_db), starting_bankroll=1000.0)
+    trades, rej = engine.run(spec, data.load_bars(fair_db, source="collector"), starting_bankroll=1000.0)
     assert trades, f"no trades placed; rejections={rej}"
     report = metrics.summarize(trades, 1000.0, rej)
 

@@ -1,0 +1,21 @@
+{
+  "name": "fade-the-view",
+  "version": 1,
+  "description": "The mirror of edge-taker: sell the leg when the PM's view says the market is OVERpricing it. A desk that only ever buys is only half a view, and its P&L cannot separate a good model from a rising market.",
+  "side": "no",
+  "universe": {"series": ["*"], "min_volume": 20},
+  "entry": {"all": [
+    {"signal": "edge",   "op": "gt", "value": 0.06},
+    {"signal": "price",  "op": "between", "value": [0.10, 0.90]},
+    {"signal": "spread", "op": "lt", "value": 8}
+  ]},
+  "sizing": {"method": "kelly", "fraction": 0.20, "max_bet_dollars": 8.0,
+             "max_concurrent_positions": 25},
+  "exit": {"any": [
+    {"signal": "edge", "op": "lt", "value": -0.02},
+    {"signal": "unrealized_pnl_pct", "op": "lt", "value": -0.50},
+    {"signal": "hold_to_settlement", "op": "eq", "value": true}
+  ]},
+  "caps": {"daily_spend_dollars": 60.0, "per_market_dollars": 8.0,
+           "total_exposure_dollars": 300.0}
+}

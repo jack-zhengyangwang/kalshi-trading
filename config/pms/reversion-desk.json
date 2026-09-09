@@ -1,0 +1,12 @@
+{
+  "name": "reversion-desk",
+  "description": "The deliberate opposite of momentum-desk: recent moves overshoot. Holding both means their divergence tells you which regime you are in, instead of a backtest average that hides both.",
+  "view": {"view": "mean_reversion", "params": {"lookback": 24, "strength": 0.5}},
+  "bankroll": 1000.0,
+  "allocation": "equal",
+  "agents": [
+    {"name": "edge-taker",    "spec": "strategies/agents/edge-taker.json"},
+    {"name": "fade-the-view", "spec": "strategies/agents/fade-the-view.json"}
+  ],
+  "caps": {"daily_spend_dollars": 120.0, "total_exposure_dollars": 500.0}
+}

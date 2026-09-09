@@ -34,6 +34,37 @@ from wc import paths
 from wc.backtest import data
 
 SETTLED_STATUSES = ("settled", "finalized")
+
+# Kalshi reports a VOIDED market as result='scalar' with a settlement value
+# strictly between 0 and 1 — the game was cancelled or postponed, so each leg
+# pays out a fair price instead of resolving. About 13% of settled soccer
+# markets land here, so it is a third outcome to record, not noise to skip.
+VOID_RESULT = "scalar"
+
+
+def settlement_outcome(market):
+    """('yes'|'no'|'void'|None, settlement_value_dollars|None) for a market.
+
+    Returns (None, None) when the market has not finished, so the caller leaves
+    it in the sweep queue.
+    """
+    if market.get("status") not in SETTLED_STATUSES:
+        return None, None
+
+    raw = market.get("settlement_value_dollars")
+    try:
+        value = float(raw) if raw not in (None, "") else None
+    except (TypeError, ValueError):
+        value = None
+
+    result = (market.get("result") or "").lower()
+    if result in ("yes", "no"):
+        return result, (1.0 if result == "yes" else 0.0) if value is None else value
+    if result == VOID_RESULT:
+        # A void with no value is not usable — recording it as 'void' with an
+        # unknown payout would silently invent a P&L of zero.
+        return ("void", value) if value is not None else (None, None)
+    return None, None
 LOG_PATH = os.path.join(paths.LOGS_DIR, "collect.jsonl")
 CONFIG_PATH = os.path.join(paths.CONFIG_DIR, "collector.json")
 
@@ -176,12 +207,12 @@ def settle_open_markets(con, client, now, batch=200, max_batches=10,
             print(f"[collect] settle batch failed: {e}", file=sys.stderr)
             continue
         for m in fetched:
-            result = (m.get("result") or "").lower()
-            if m.get("status") not in SETTLED_STATUSES or result not in ("yes", "no"):
+            result, value = settlement_outcome(m)
+            if result is None:
                 continue
             settled += 1
             if not dry_run:
-                data.set_result(con, m["ticker"], m.get("status"), result)
+                data.set_result(con, m["ticker"], m.get("status"), result, value)
     return settled
 
 

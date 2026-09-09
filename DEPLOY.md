@@ -66,7 +66,7 @@ Not installed by the deploy; you install it deliberately when you want the
 system live. Reference schedule:
 
 ```cron
-*/5    * * * * cd /root/kalshi-trading && flock -n /tmp/collect.lock ./scripts/run_collect.sh >> logs/collect.out 2>&1
+*/15   * * * * cd /root/kalshi-trading && flock -n /tmp/collect.lock ./scripts/run_collect.sh >> logs/collect.out 2>&1
 1-59/2 * * * * cd /root/kalshi-trading && flock -n /tmp/arena.lock  ./scripts/run_arena.sh   >> logs/arena.out  2>&1
 3-59/5 * * * * cd /root/kalshi-trading && flock -n /tmp/promote.lock ./scripts/run_promote.sh >> logs/promote.out 2>&1
 */4    * * * * cd /root/kalshi-trading && flock -n /tmp/guard.lock  ./scripts/run_guard.sh   >> logs/guard.out  2>&1
@@ -93,7 +93,7 @@ So install it by itself first:
 ```bash
 ssh root@147.182.237.14
 cd /root/kalshi-trading
-(crontab -l 2>/dev/null; echo '*/5 * * * * cd /root/kalshi-trading && flock -n /tmp/collect.lock ./scripts/run_collect.sh >> logs/collect.out 2>&1') | crontab -
+(crontab -l 2>/dev/null; echo '*/15 * * * * cd /root/kalshi-trading && flock -n /tmp/collect.lock ./scripts/run_collect.sh >> logs/collect.out 2>&1') | crontab -
 systemctl enable cron && systemctl start cron
 ```
 
@@ -102,12 +102,20 @@ Check it after ten minutes — two cycles should have landed:
 ```bash
 ssh root@147.182.237.14 'cd /root/kalshi-trading \
   && tail -3 logs/collect.jsonl \
-  && ./venv/bin/python3 -m wc.backtest.quality --interval 300'
+  && ./venv/bin/python3 -m wc.backtest.quality --interval 900'
 ```
 
 `flock` matters here for the same reason it does elsewhere: a cycle takes ~50s
-and the interval is 300s, so overlap is unlikely but a slow API day would
-otherwise stack cycles. Snapshot timestamps are floored to the interval anyway,
+and the interval is 900s, so overlap is unlikely but a slow API day would
+otherwise stack cycles.
+
+**Why 15 minutes and not 5:** Kalshi serves 1-minute historical candles for any
+market that settles (see `wc/backtest/backfill.py`), so the collector is not
+where resolution comes from. What it uniquely provides is the survivorship
+record — `first_seen` answers "what existed on date D", including markets that
+never resolved and that backfill can therefore never see — plus the live book.
+At 5 minutes it was writing ~700k rows a day for resolution available for free
+elsewhere. Snapshot timestamps are floored to the interval anyway,
 so even a double-fire overwrites rather than duplicating.
 
 **If `wc.backtest.quality` reports anything under "BLOCKING", stop and fix it

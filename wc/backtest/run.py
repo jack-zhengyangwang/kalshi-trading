@@ -66,6 +66,12 @@ def main(argv=None):
     ap.add_argument("--start", help="YYYY-MM-DD")
     ap.add_argument("--end", help="YYYY-MM-DD")
     ap.add_argument("--series", nargs="*", help="restrict to these series")
+    ap.add_argument("--source", choices=sorted(data.SOURCES), default="backfill",
+                    help="'backfill' = true OHLC from Kalshi's archive (the "
+                         "backtest source). 'collector' = forward snapshots, "
+                         "which belong to forward testing, not backtesting")
+    ap.add_argument("--interval-min", type=int,
+                    help="backfill resolution to read (1, 60, 1440)")
     ap.add_argument("--bankroll", type=float, default=1000.0)
     ap.add_argument("--windows", type=int, default=4)
     ap.add_argument("--in-sample", action="store_true",
@@ -85,6 +91,13 @@ def main(argv=None):
                          "0 fills on the deciding bar — a DIAGNOSTIC, not a result")
     ap.add_argument("--no-latency-check", action="store_true",
                     help="skip the same-bar comparison run")
+    ap.add_argument("--assume-fills", action="store_true",
+                    help="assume liquidity: no volume cap, --fill-rate of each "
+                         "order fills. An optimistic ASSUMPTION for answering "
+                         "'is there an edge at all', not for sizing real money")
+    ap.add_argument("--fill-rate", type=float, default=0.99,
+                    help="fraction of a requested order that fills under "
+                         "--assume-fills (default 0.99)")
     ap.add_argument("--out", help="write metrics JSON here")
     args = ap.parse_args(argv)
 
@@ -104,7 +117,8 @@ def main(argv=None):
     bars = data.load_bars(con,
                           start_ts=_ts(args.start) if args.start else None,
                           end_ts=_ts(args.end) if args.end else None,
-                          series=args.series)
+                          series=args.series, source=args.source,
+                          interval_min=args.interval_min)
     if not bars:
         print("[data] no bars matched. Widen the window or backfill more history.",
               file=sys.stderr)
@@ -113,7 +127,9 @@ def main(argv=None):
     costs = engine.Costs(fee_rate=args.fee_rate,
                          slippage_cents=args.slippage_cents,
                          max_volume_share=args.max_volume_share,
-                         fill_delay_bars=args.fill_delay_bars)
+                         fill_delay_bars=args.fill_delay_bars,
+                         assume_fills=args.assume_fills,
+                         fill_rate=args.fill_rate)
 
     # ── the most recent period is held out entirely and touched ONCE ─────────
     # Walk-forward alone still tunes against every window it reports on. A
@@ -187,6 +203,14 @@ def main(argv=None):
             f"window edge rather than settled: {cause}. Treat this P&L as unreliable.")
     if n == 0:
         warnings.append("no trades placed — check the rejection counts below.")
+    if args.assume_fills:
+        warnings.append(
+            f"ASSUMED FILLS: no volume cap, {args.fill_rate:.0%} of each order "
+            f"filled regardless of resting size. Optimistic by an unknown "
+            f"amount — prediction-market books are thin, and the markets a "
+            f"strategy most wants often have least size behind the quote. "
+            f"Re-run without --assume-fills to see how much edge survives.")
+
     if args.brains:
         report["lookahead_risk"] = pricing.LOOKAHEAD_WARNING
         report["bars_priced_by_brains"] = len(model_probs or {})
@@ -196,11 +220,14 @@ def main(argv=None):
     report["strategy"] = strategy["name"]
     report["spec_path"] = args.spec
     report["bars"] = len(bars)
+    report["data_source"] = args.source
     report["windows"] = per_window
     report["costs"] = {"fee_rate": args.fee_rate,
                        "slippage_cents": args.slippage_cents,
                        "max_volume_share": args.max_volume_share,
-                       "fill_delay_bars": args.fill_delay_bars}
+                       "fill_delay_bars": args.fill_delay_bars,
+                       "assume_fills": args.assume_fills,
+                       "fill_rate": args.fill_rate if args.assume_fills else None}
 
     # ── latency sensitivity ──────────────────────────────────────────────────
     # The same strategy, filled on the bar that triggered it. That number is
@@ -210,7 +237,8 @@ def main(argv=None):
     if not args.no_latency_check and args.fill_delay_bars > 0:
         same_bar_costs = engine.Costs(
             fee_rate=args.fee_rate, slippage_cents=args.slippage_cents,
-            max_volume_share=args.max_volume_share, fill_delay_bars=0)
+            max_volume_share=args.max_volume_share, fill_delay_bars=0,
+            assume_fills=args.assume_fills, fill_rate=args.fill_rate)
         sb_trades, sb_rej = engine.run(strategy, bars, args.bankroll,
                                        costs=same_bar_costs,
                                        model_probs=model_probs)

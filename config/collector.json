@@ -4,8 +4,8 @@
   "suffixes": ["GAME"],
   "_suffixes_note": "GAME = match winner (home/draw/away). MEASURED 2026-09-07: 139 series, 2130 open markets, 35s per cycle. This is where our own forecasting edge lives and it is the most-validated category. Widening to game_lines (SPREAD/TOTAL/BTTS/1H/2H) is ~1000 series and several minutes per cycle — raise interval_seconds to 900 first, and check GET /account/api-limits.",
 
-  "interval_seconds": 300,
-  "_interval_note": "Must match the cron schedule AND the --interval passed to wc.backtest.quality, or gap detection reports phantom gaps. Snapshot timestamps are floored to this bucket so a double-fired cron overwrites rather than duplicates.",
+  "interval_seconds": 900,
+  "_interval_note": "Must match the cron schedule AND the --interval passed to wc.backtest.quality, or gap detection reports phantom gaps. Snapshot timestamps are floored to this bucket so a double-fired cron overwrites rather than duplicates. Raised 300->900 on 2026-09-09: Kalshi serves 1-MINUTE historical candles for anything that settles, so the collector is not the resolution source. Its unique value is the survivorship record (first_seen: what existed on date D, including markets that never resolved) and the live book. 300s was writing ~700k rows/day for resolution we can get better elsewhere.",
 
   "series_cache_ttl": 3600
 }

@@ -60,7 +60,7 @@ def test_bars_are_chronological_across_markets(con):
     data.upsert_candles(con, "B", [candle(ts=10)])
     data.upsert_candles(con, "C", [candle(ts=20)])
 
-    bars = data.load_bars(con)
+    bars = data.load_bars(con, source="collector")
     assert [b["ts"] for b in bars] == [0, 10, 20, 30]
     assert [b["ticker"] for b in bars] == ["A", "B", "C", "A"]
 
@@ -68,7 +68,7 @@ def test_bars_are_chronological_across_markets(con):
 def test_load_bars_joins_market_metadata(con):
     data.upsert_market(con, mkt(result="yes", close_time=500))
     data.upsert_candles(con, "M1", [candle(ts=0)])
-    b = data.load_bars(con)[0]
+    b = data.load_bars(con, source="collector")[0]
     assert b["series"] == "S"
     assert b["close_time"] == 500
     assert b["result"] == "yes"
@@ -80,10 +80,10 @@ def test_load_bars_window_and_series_filters(con):
     data.upsert_candles(con, "A", [candle(ts=i) for i in (0, 100, 200)])
     data.upsert_candles(con, "B", [candle(ts=i) for i in (0, 100, 200)])
 
-    assert len(data.load_bars(con, start_ts=100)) == 4
-    assert len(data.load_bars(con, end_ts=100)) == 4
-    assert len(data.load_bars(con, series=["S1"])) == 3
-    assert len(data.load_bars(con, tickers=["B"])) == 3
+    assert len(data.load_bars(con, source="collector", start_ts=100)) == 4
+    assert len(data.load_bars(con, source="collector", end_ts=100)) == 4
+    assert len(data.load_bars(con, source="collector", series=["S1"])) == 3
+    assert len(data.load_bars(con, source="collector", tickers=["B"])) == 3
 
 
 def test_progress_is_resumable(con):

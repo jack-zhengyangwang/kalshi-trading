@@ -1,0 +1,20 @@
+{
+  "name": "conviction-only",
+  "version": 1,
+  "description": "Trades only where the view disagrees with the book by a wide margin. Fewer, larger positions — the test of whether a view's confident calls are actually better than its marginal ones.",
+  "side": "yes",
+  "universe": {"series": ["*"], "min_volume": 50},
+  "entry": {"all": [
+    {"signal": "edge",       "op": "gt", "value": 0.15},
+    {"signal": "model_prob", "op": "between", "value": [0.25, 0.85]},
+    {"signal": "spread",     "op": "lt", "value": 6}
+  ]},
+  "sizing": {"method": "kelly", "fraction": 0.30, "max_bet_dollars": 12.0,
+             "max_concurrent_positions": 10},
+  "exit": {"any": [
+    {"signal": "unrealized_pnl_pct", "op": "lt", "value": -0.60},
+    {"signal": "hold_to_settlement", "op": "eq", "value": true}
+  ]},
+  "caps": {"daily_spend_dollars": 60.0, "per_market_dollars": 12.0,
+           "total_exposure_dollars": 300.0}
+}

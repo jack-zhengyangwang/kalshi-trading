@@ -16,7 +16,9 @@ def seed(con, n_bars=40, tickers=("M1", "M2")):
         data.upsert_market(con, {"ticker": t, "series": "S", "title": t,
                                  "sub_title": t, "close_time": 500 * day,
                                  "status": "active", "result": "yes"}, now=0)
-        data.upsert_candles(con, t, [
+        # backfill table: the runner reads that source by default, because a
+        # backtest belongs on true OHLC rather than forward snapshots
+        data.upsert_backfill_candles(con, t, 60, [
             {"ts": i * day, "yes_bid": 39, "yes_ask": 41, "close": 40,
              "volume": 10_000, "open_interest": 1000} for i in range(n_bars)])
 
@@ -109,7 +111,7 @@ def test_liquidation_warning_names_the_real_cause(tmp_path):
     data.upsert_market(con, {"ticker": "M", "series": "S", "title": "M",
                              "close_time": 500 * 86400, "status": "active",
                              "result": "yes"}, now=0)
-    data.upsert_candles(con, "M", [
+    data.upsert_backfill_candles(con, "M", 60, [
         {"ts": t, "yes_bid": 39, "yes_ask": 41, "close": 40,
          "volume": 10_000, "open_interest": 1000} for t in (0, 300, 600)])
     p = tmp_path / "s.json"
@@ -148,7 +150,7 @@ def test_an_execution_artefact_is_called_out(tmp_path):
                                  "close_time": 300 * day, "status": "active",
                                  "result": "no"}, now=0)
         t = i * 3600
-        data.upsert_candles(con, tk, [
+        data.upsert_backfill_candles(con, tk, 60, [
             {"ts": t, "yes_bid": 49, "yes_ask": 51, "close": 50,
              "volume": 10_000, "open_interest": 1000},
             {"ts": t + 60, "yes_bid": 4, "yes_ask": 6, "close": 5,

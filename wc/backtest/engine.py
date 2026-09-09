@@ -37,7 +37,8 @@ class Costs:
 
     def __init__(self, fee_rate=0.07, slippage_cents=1.0,
                  max_volume_share=0.10, settlement_fee=0.0,
-                 fill_delay_bars=1, max_fill_age_seconds=3600):
+                 fill_delay_bars=1, max_fill_age_seconds=3600,
+                 assume_fills=False, fill_rate=0.99):
         self.fee_rate = fee_rate
         self.slippage_cents = slippage_cents
         self.max_volume_share = max_volume_share
@@ -61,6 +62,19 @@ class Costs:
         # not one you would still be sending that order into.
         self.max_fill_age_seconds = max_fill_age_seconds
 
+        # ASSUME-FILLS MODE. Treats liquidity as available: the per-bar volume
+        # cap is skipped and `fill_rate` of the requested size fills.
+        #
+        # This is a stated ASSUMPTION, not a measurement, and it is optimistic.
+        # Prediction-market books are thin, and the markets a strategy most
+        # wants are often the ones with least size behind the quote. Use it to
+        # answer "is there an edge here at all" — a strategy that loses even
+        # under assumed fills is dead, and that is worth knowing in one run.
+        # Do not use it to size real money: turn it off, and see how much of
+        # the edge survives the volume cap.
+        self.assume_fills = assume_fills
+        self.fill_rate = fill_rate
+
     def trade_fee(self, price, contracts):
         """Kalshi fee: round_up(fee_rate * C * P * (1 - P)), P as a probability.
         Peaks at P=0.5 and vanishes at the extremes."""
@@ -76,7 +90,8 @@ class BarView:
     """
 
     __slots__ = ("ticker", "series", "ts", "yes_bid", "yes_ask", "close",
-                 "volume", "open_interest", "close_time", "_result", "_history")
+                 "volume", "open_interest", "close_time", "_result",
+                 "_settlement_value", "_history")
 
     def __init__(self, row, history=None):
         # `history` is a list of trailing {price, open_interest} dicts — the
@@ -92,6 +107,9 @@ class BarView:
         self.open_interest = row["open_interest"] or 0
         self.close_time = row["close_time"]
         self._result = row["result"]
+        keys = row.keys() if hasattr(row, "keys") else ()
+        self._settlement_value = (row["settlement_value"]
+                                  if "settlement_value" in keys else None)
         self._history = history or []
 
     @property
@@ -104,6 +122,38 @@ class BarView:
         if not self.settled:
             return None
         return self._result
+
+    @property
+    def final_result(self):
+        """The recorded outcome, readable WITHOUT the close_time gate.
+
+        Strictly for end-of-run finalisation, never for a trading decision.
+        Kalshi's archive stops at a market's close_time, so the last bar is
+        always fractionally BEFORE it and `settled` never fires — which would
+        leave every resolved position marked out at its last price, discarding
+        an outcome we actually know.
+
+        This is not lookahead: the replay is over, no strategy is consulted
+        again, and the position was opened long before. Reading it during the
+        loop would be; that is why `result` keeps its gate and this is separate.
+        """
+        return self._result
+
+    @property
+    def final_settlement_value(self):
+        """The recorded payout, ungated — the companion to `final_result`, and
+        safe for the same reason: the replay is over and no strategy is
+        consulted again."""
+        return self._settlement_value
+
+    @property
+    def settlement_value(self):
+        """Dollars per contract at settlement. 1.0 for YES, 0.0 for NO, and
+        something in between for a VOID. Unreadable before close, like
+        `result` — it carries the outcome just as directly."""
+        if not self.settled:
+            return None
+        return self._settlement_value
 
     def days_to_resolution(self):
         if self.close_time is None:
@@ -192,39 +242,79 @@ class Position:
         }
 
 
+class Book:
+    """One agent's sub-book inside a portfolio manager.
+
+    Its own capital and its own positions, so its P&L is its own. What it
+    SHARES with its sibling agents is the PM's view (they read the same
+    `model_probs`) and the PM's risk limits — which is exactly how a desk
+    works: independent traders, one risk book.
+    """
+
+    __slots__ = ("name", "spec", "bankroll", "start_bankroll", "positions",
+                 "pending_entry", "pending_exit", "committed", "spend_by_day")
+
+    def __init__(self, name, spec, bankroll):
+        self.name = name
+        self.spec = spec
+        self.bankroll = float(bankroll)
+        self.start_bankroll = float(bankroll)
+        self.positions = {}                   # ticker -> Position
+        self.pending_entry = {}
+        self.pending_exit = {}
+        self.committed = 0.0
+        self.spend_by_day = defaultdict(float)
+
+    def exposure(self):
+        return sum(p.cost for p in self.positions.values()) + self.committed
+
+
 def run(spec, bars, starting_bankroll=1000.0, costs=None,
         model_probs=None, history_window=20):
-    """Replay `spec` over `bars` (chronological, all markets interleaved).
+    """Replay ONE strategy. A thin wrapper over run_book, deliberately — a
+    separate single-strategy loop would be a second implementation to drift."""
+    return run_book([Book("_", spec, starting_bankroll)], bars, costs=costs,
+                    model_probs=model_probs, history_window=history_window)
 
-    `model_probs` optionally maps (ticker, ts) -> p_fair from our own brains,
-    which is what lets an existing v4 strategy be expressed as a spec and
-    backtested against the same engine as everything else.
 
-    Returns (trades, rejections).
+def run_book(books, bars, costs=None, model_probs=None, history_window=20,
+             pm_caps=None):
+    """Replay a portfolio manager's whole book over `bars`.
+
+    `books` are the PM's agents, each with its own capital. `model_probs` is the
+    PM's VIEW — one opinion, shared by its own agents and by nobody else's, which
+    is the point of wc/firm/views.py.
+
+    `pm_caps` are firm-level limits that bind ACROSS agents, on top of each
+    agent's own spec caps. Two agents that each pass their own daily cap must
+    still not breach the PM's.
+
+    Bars are replayed chronologically across all markets AND all agents in one
+    pass. Running each agent separately would mean PM-level caps could never
+    bind, because the engine would never see two agents holding at once — the
+    same reasoning that makes the market interleave load-bearing.
+
+    Returns (trades, rejections). Every trade carries `agent`.
     """
     costs = costs or Costs()
-    side = spec["side"]
-    caps = spec["caps"]
-    max_positions = spec["sizing"].get("max_concurrent_positions")
-
     delay = costs.fill_delay_bars
+    pm_caps = pm_caps or {}
 
-    bankroll = float(starting_bankroll)
-    open_positions = {}                       # ticker -> Position
     trades = []
     rejections = defaultdict(int)
-    spend_by_day = defaultdict(float)
-    history = defaultdict(list)               # ticker -> trailing {price, oi}
-    vol_24h = defaultdict(deque)              # ticker -> (ts, volume) in the last day
-    last_view = {}                            # ticker -> most recent BarView
+    history = defaultdict(list)
+    vol_24h = defaultdict(deque)
+    last_view = {}
+    pm_spend_by_day = defaultdict(float)
 
-    # Decisions awaiting a fill bar. Capital they will consume is COMMITTED at
-    # decision time and counted against the caps immediately — otherwise two
-    # intents raised on the same bar could each pass the cap check and then
-    # both fill, breaching it.
-    pending_entry = {}                        # ticker -> intent
-    pending_exit = {}                         # ticker -> intent
-    committed = 0.0
+    def pm_exposure():
+        return sum(b.exposure() for b in books)
+
+    def pm_committed():
+        """Capital the desk has decided to spend but not yet filled. Without
+        this, three agents can each pass the PM's daily cap on the same bar and
+        then all fill — the identical flaw the per-agent caps already guard."""
+        return sum(b.committed for b in books)
 
     for row in bars:
         view = BarView(row, history=list(history[row["ticker"]]))
@@ -233,153 +323,197 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
             rejections["no_price"] += 1
             continue
 
-        price = mid if side == "yes" else 1.0 - mid
         history[view.ticker].append(
-            {"price": price, "open_interest": view.open_interest})
+            {"price": mid, "open_interest": view.open_interest})
         if len(history[view.ticker]) > history_window:
             history[view.ticker].pop(0)
 
-        last_view[view.ticker] = view
-        mp = (model_probs or {}).get((view.ticker, view.ts))
-        ctx = view.to_ctx(side, model_prob=mp)
-        # `volume_24h` means what it says: the volume observed on this ticker in
-        # the trailing 24 hours, not this one bar's. The bar's own figure stays
-        # available as `volume`.
         window = vol_24h[view.ticker]
         window.append((view.ts, view.volume))
         cutoff = view.ts - 86400
         while window and window[0][0] < cutoff:
             window.popleft()
-        ctx["volume_24h"] = sum(v for _, v in window)
+        vol_day = sum(v for _, v in window)
 
-        # ── settle anything past close ───────────────────────────────────────
-        pos = open_positions.get(view.ticker)
-        if pos and view.settled:
-            trades.append(_settle(pos, view, costs))
-            bankroll += trades[-1]["net_pnl"] + pos.cost
-            del open_positions[view.ticker]
-            pending_exit.pop(view.ticker, None)     # settlement beat the exit
-            continue
-
-        # ── a pending EXIT reaching its fill bar ─────────────────────────────
-        if view.ticker in pending_exit:
-            intent = pending_exit[view.ticker]
-            intent["bars_left"] -= 1
-            if intent["bars_left"] > 0:
-                continue
-            del pending_exit[view.ticker]
-            if _too_stale(intent, view, costs):
-                # The exit did not happen. The position stays open and the
-                # strategy may fire the exit again on a later bar — which is
-                # what actually happens when a stop cannot be hit.
-                rejections["exit_expired_before_fill"] += 1
-                continue
-            trades.append(_close(pos, view, price, costs))
-            bankroll += trades[-1]["net_pnl"] + pos.cost
-            del open_positions[view.ticker]
-            continue
-
-        # ── a pending ENTRY reaching its fill bar ────────────────────────────
-        if view.ticker in pending_entry:
-            intent = pending_entry[view.ticker]
-            intent["bars_left"] -= 1
-            if intent["bars_left"] > 0:
-                continue
-            del pending_entry[view.ticker]
-            committed -= intent["stake"]
-            if _too_stale(intent, view, costs):
-                rejections["entry_expired_before_fill"] += 1
-                continue
-            filled = _open_position(intent, view, side, costs, bankroll, rejections)
-            if filled:
-                bankroll -= (filled.cost + filled.entry_fee)
-                spend_by_day[int(view.ts // 86400)] += filled.cost
-                open_positions[view.ticker] = filled
-            continue
-
-        # ── exits, before entries: frees capital and a position slot ─────────
-        if pos:
-            if interpret.should_exit(spec, ctx,
-                                     pos.exit_ctx(price, view.ts, settled=False)):
-                if delay <= 0:
-                    trades.append(_close(pos, view, price, costs))
-                    bankroll += trades[-1]["net_pnl"] + pos.cost
-                    del open_positions[view.ticker]
-                else:
-                    # Delayed symmetrically with entries. This is where
-                    # "slipping through a stop" comes from — a stop filled at
-                    # its own trigger price is the most common way a backtested
-                    # stop-loss flatters itself.
-                    pending_exit[view.ticker] = {"decided_ts": view.ts,
-                                                 "bars_left": delay}
-            continue                          # never re-enter the same bar
-
-        # ── entries ──────────────────────────────────────────────────────────
-        # universe and signal rejections are counted separately: "no trades"
-        # must be explainable, not silent.
-        if not interpret.passes_universe(spec, ctx):
-            rejections["universe_filter"] += 1
-            continue
-        if not interpret.evaluate(spec["entry"], ctx):
-            rejections["entry_conditions"] += 1
-            continue
-
-        if max_positions and \
-                len(open_positions) + len(pending_entry) >= max_positions:
-            rejections["max_concurrent_positions"] += 1
-            continue
-
-        stake = interpret.size(spec, ctx, bankroll)
-        if stake <= 0:
-            rejections["zero_size"] += 1
-            continue
-
-        stake = min(stake, caps["per_market_dollars"])
-
-        # Committed-but-unfilled capital counts against both caps. Checking
-        # only what has already filled would let a burst of same-bar signals
-        # each pass the check and then collectively breach it.
+        last_view[view.ticker] = view
+        mp = (model_probs or {}).get((view.ticker, view.ts))
         day = int(view.ts // 86400)
-        if spend_by_day[day] + committed + stake > caps["daily_spend_dollars"]:
-            rejections["daily_cap"] += 1
-            continue
 
-        exposure = sum(p.cost for p in open_positions.values()) + committed
-        if exposure + stake > caps["total_exposure_dollars"]:
-            rejections["total_exposure_cap"] += 1
-            continue
+        for book in books:
+            spec = book.spec
+            side = spec["side"]
+            caps = spec["caps"]
+            max_positions = spec["sizing"].get("max_concurrent_positions")
+            price = mid if side == "yes" else 1.0 - mid
 
-        intent = {"stake": stake, "decided_ts": view.ts, "model_prob": mp,
-                  "series": view.series, "bars_left": delay}
+            ctx = view.to_ctx(side, model_prob=mp)
+            ctx["volume_24h"] = vol_day
 
-        if delay <= 0:
-            filled = _open_position(intent, view, side, costs, bankroll, rejections)
-            if filled:
-                bankroll -= (filled.cost + filled.entry_fee)
-                spend_by_day[day] += filled.cost
-                open_positions[view.ticker] = filled
-        else:
-            pending_entry[view.ticker] = intent
-            committed += stake
+            def close_out(pos, rec):
+                trades.append(rec)
+                rec["agent"] = book.name
+                book.bankroll += rec["net_pnl"] + pos.cost
+                del book.positions[view.ticker]
+
+            pos = book.positions.get(view.ticker)
+            if pos and view.settled:
+                close_out(pos, _settle(pos, view, costs))
+                book.pending_exit.pop(view.ticker, None)
+                continue
+
+            if view.ticker in book.pending_exit:
+                intent = book.pending_exit[view.ticker]
+                intent["bars_left"] -= 1
+                if intent["bars_left"] > 0:
+                    continue
+                del book.pending_exit[view.ticker]
+                if _too_stale(intent, view, costs):
+                    rejections["exit_expired_before_fill"] += 1
+                    continue
+                close_out(pos, _close(pos, view, price, costs))
+                continue
+
+            if view.ticker in book.pending_entry:
+                intent = book.pending_entry[view.ticker]
+                intent["bars_left"] -= 1
+                if intent["bars_left"] > 0:
+                    continue
+                del book.pending_entry[view.ticker]
+                book.committed -= intent["stake"]
+                if _too_stale(intent, view, costs):
+                    rejections["entry_expired_before_fill"] += 1
+                    continue
+                filled = _open_position(intent, view, side, costs,
+                                        book.bankroll, rejections)
+                if filled:
+                    book.bankroll -= (filled.cost + filled.entry_fee)
+                    book.spend_by_day[day] += filled.cost
+                    pm_spend_by_day[day] += filled.cost
+                    book.positions[view.ticker] = filled
+                continue
+
+            if pos:
+                if interpret.should_exit(spec, ctx,
+                                         pos.exit_ctx(price, view.ts, settled=False)):
+                    if delay <= 0:
+                        close_out(pos, _close(pos, view, price, costs))
+                    else:
+                        book.pending_exit[view.ticker] = {
+                            "decided_ts": view.ts, "bars_left": delay}
+                continue
+
+            if not interpret.passes_universe(spec, ctx):
+                rejections["universe_filter"] += 1
+                continue
+            if not interpret.evaluate(spec["entry"], ctx):
+                rejections["entry_conditions"] += 1
+                continue
+
+            if max_positions and \
+                    len(book.positions) + len(book.pending_entry) >= max_positions:
+                rejections["max_concurrent_positions"] += 1
+                continue
+
+            stake = interpret.size(spec, ctx, book.bankroll)
+            if stake <= 0:
+                rejections["zero_size"] += 1
+                continue
+            stake = min(stake, caps["per_market_dollars"])
+
+            if book.spend_by_day[day] + book.committed + stake > caps["daily_spend_dollars"]:
+                rejections["daily_cap"] += 1
+                continue
+            if book.exposure() + stake > caps["total_exposure_dollars"]:
+                rejections["total_exposure_cap"] += 1
+                continue
+
+            # Firm-level limits, on top of the agent's own. Two agents that each
+            # pass their own cap must still not breach the PM's.
+            if "daily_spend_dollars" in pm_caps and \
+                    pm_spend_by_day[day] + pm_committed() + stake \
+                    > pm_caps["daily_spend_dollars"]:
+                rejections["pm_daily_cap"] += 1
+                continue
+            if "total_exposure_dollars" in pm_caps and \
+                    pm_exposure() + stake > pm_caps["total_exposure_dollars"]:
+                rejections["pm_exposure_cap"] += 1
+                continue
+
+            intent = {"stake": stake, "decided_ts": view.ts, "model_prob": mp,
+                      "series": view.series, "bars_left": delay}
+            if delay <= 0:
+                filled = _open_position(intent, view, side, costs,
+                                        book.bankroll, rejections)
+                if filled:
+                    book.bankroll -= (filled.cost + filled.entry_fee)
+                    book.spend_by_day[day] += filled.cost
+                    pm_spend_by_day[day] += filled.cost
+                    book.positions[view.ticker] = filled
+            else:
+                book.pending_entry[view.ticker] = intent
+                book.committed += stake
 
     # Positions still open when the data ends must not vanish — that would
-    # silently drop their P&L and flatter the result. Mark them out at the last
-    # price seen and flag them, so the report can separate them from real exits.
-    for ticker, pos in open_positions.items():
-        last = last_view.get(ticker)
-        if last is None:
-            continue
-        price = last.mid()
-        if price is None:
-            continue
-        px = price if pos.side == "yes" else 1.0 - price
-        gross = (px - pos.entry_price) * pos.contracts
-        rec = _record(pos, last.ts, px, gross, 0.0, None, False)
-        rec["liquidated_at_end"] = True
-        trades.append(rec)
-        rejections["open_at_end"] += 1
+    # silently drop their P&L and flatter the result.
+    #
+    # A market whose close_time has passed and whose outcome we recorded is
+    # SETTLED, not liquidated: paying it out at its last quoted price would
+    # throw away the one fact that makes P&L, Brier, and calibration
+    # computable. Only a genuinely unfinished market is marked to market.
+    for book in books:
+        for ticker, pos in book.positions.items():
+            last = last_view.get(ticker)
+            if last is None:
+                continue
 
+            finished = (last.close_time is not None and last.ts >= last.close_time)
+            outcome = last.final_result
+            if outcome in ("yes", "no", "void") and (finished or _past_close(last)):
+                rec = _settle_final(pos, last, costs, outcome)
+                rec["agent"] = book.name
+                trades.append(rec)
+                continue
+
+            price = last.mid()
+            if price is None:
+                continue
+            px = price if pos.side == "yes" else 1.0 - price
+            gross = (px - pos.entry_price) * pos.contracts
+            rec = _record(pos, last.ts, px, gross, 0.0, None, False)
+            rec["liquidated_at_end"] = True
+            rec["agent"] = book.name
+            trades.append(rec)
+            rejections["open_at_end"] += 1
+
+    trades.sort(key=lambda t: t["exit_ts"])
     return trades, dict(rejections)
+
+
+def _past_close(view):
+    """The archive stops AT close_time, so the final bar sits just inside it.
+    A market whose last bar is within one day of its close has finished for
+    settlement purposes; one whose data ends weeks early genuinely has not."""
+    if view.close_time is None:
+        return False
+    return (view.close_time - view.ts) <= DAY
+
+
+def _settle_final(pos, view, costs, outcome):
+    """Settle a still-open position at end of run, using the recorded outcome."""
+    if outcome == "void":
+        value = view.final_settlement_value
+        value = pos.entry_price if value is None else value
+        payout = value if pos.side == "yes" else (1.0 - value)
+        rec = _record(pos, view.ts, payout,
+                      (payout - pos.entry_price) * pos.contracts,
+                      costs.settlement_fee, None, True)
+        rec["voided"] = True
+        return rec
+    won = (outcome == "yes") if pos.side == "yes" else (outcome == "no")
+    payout = 1.0 if won else 0.0
+    return _record(pos, view.ts, payout,
+                   (payout - pos.entry_price) * pos.contracts,
+                   costs.settlement_fee, 1 if won else 0, True)
 
 
 def _too_stale(intent, view, costs):
@@ -405,11 +539,19 @@ def _open_position(intent, view, side, costs, bankroll, rejections):
         rejections["below_one_contract"] += 1
         return None
 
-    cap_by_volume = int((view.volume or 0) * costs.max_volume_share)
-    if cap_by_volume < 1:
-        rejections["insufficient_volume"] += 1
-        return None
-    contracts = min(contracts, cap_by_volume)
+    if costs.assume_fills:
+        # Edge cases dismissed on purpose: no volume cap, and `fill_rate` of
+        # the order fills regardless of what was resting at the quote.
+        contracts = int(contracts * costs.fill_rate)
+        if contracts < 1:
+            rejections["below_one_contract"] += 1
+            return None
+    else:
+        cap_by_volume = int((view.volume or 0) * costs.max_volume_share)
+        if cap_by_volume < 1:
+            rejections["insufficient_volume"] += 1
+            return None
+        contracts = min(contracts, cap_by_volume)
 
     cost = contracts * fill
     fee = costs.trade_fee(fill, contracts)
@@ -466,8 +608,27 @@ def _close(pos, view, price, costs):
 
 
 def _settle(pos, view, costs):
-    """Settlement: contracts pay 1 or 0. `view.result` is only readable here
-    because the bar has passed close_time."""
+    """Settlement. `view.result` is only readable here because the bar has
+    passed close_time.
+
+    Three outcomes, not two. A VOID — a cancelled or postponed game — pays the
+    fair value Kalshi settled at rather than 0 or 1, so most of the stake comes
+    back. Scoring it as a loss would understate every strategy by roughly the
+    void rate, which on soccer is about 13% of settled markets.
+    """
+    if view.result == "void":
+        value = view.settlement_value
+        if value is None:                      # recorded void with no payout
+            value = pos.entry_price            # assume flat rather than invent
+        payout = value if pos.side == "yes" else (1.0 - value)
+        gross = (payout - pos.entry_price) * pos.contracts
+        rec = _record(pos, view.ts, payout, gross, costs.settlement_fee, None, True)
+        # outcome is None on purpose: a void has no binary result, so it must
+        # not enter Brier, log loss, or the calibration plot. A forecast is not
+        # wrong because the match was called off.
+        rec["voided"] = True
+        return rec
+
     won = (view.result == "yes") if pos.side == "yes" else (view.result == "no")
     outcome = 1 if won else 0
     payout = 1.0 if won else 0.0

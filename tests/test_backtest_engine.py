@@ -305,3 +305,66 @@ def test_rejection_reasons_are_counted():
     _, rej2 = engine.run(spec(), [bar(ts=0, bid=89, ask=91, close=90)],
                          starting_bankroll=1000.0, costs=NO_COST)
     assert rej2.get("entry_conditions", 0) > 0
+
+
+# ── voids: settlement's third outcome ─────────────────────────────────────────
+
+def void_bar(**kw):
+    row = bar(**kw)
+    row["result"] = "void"
+    row["settlement_value"] = kw.pop("value", 0.33)
+    return row
+
+
+def test_a_void_pays_its_settlement_value_not_zero():
+    """A cancelled game returns most of the stake. Scoring it as a loss would
+    understate every strategy by roughly the void rate — ~13% on soccer."""
+    b = bar(ts=86400, close_time=86400)
+    b["result"] = "void"
+    b["settlement_value"] = 0.40
+    bars = with_fill_bar([bar(ts=0), b])
+    trades, _ = engine.run(spec(), bars, starting_bankroll=1000.0, costs=NO_COST)
+    t = trades[0]
+    assert t["voided"] is True
+    assert t["exit_price"] == pytest.approx(0.40)
+    # entered at the 11c ask, settled at 40c
+    assert t["gross_pnl"] == pytest.approx((0.40 - 0.11) * t["contracts"])
+
+
+def test_a_void_on_the_no_side_pays_the_complement():
+    b = bar(ts=86400, close_time=86400, bid=9, ask=11)
+    b["result"] = "void"
+    b["settlement_value"] = 0.40
+    bars = with_fill_bar([bar(ts=0, bid=9, ask=11), b])
+    s = spec(side="no", entry={"all": [{"signal": "price", "op": "lt", "value": 0.99}]})
+    trades, _ = engine.run(s, bars, starting_bankroll=1000.0, costs=NO_COST)
+    assert trades[0]["exit_price"] == pytest.approx(0.60)
+
+
+def test_a_void_has_no_binary_outcome():
+    """It must not enter Brier, log loss, or calibration: a forecast is not
+    wrong because the match was called off."""
+    b = bar(ts=86400, close_time=86400)
+    b["result"] = "void"
+    b["settlement_value"] = 0.33
+    trades, _ = engine.run(spec(), with_fill_bar([bar(ts=0), b]),
+                           starting_bankroll=1000.0, costs=NO_COST)
+    assert trades[0]["outcome"] is None
+
+
+def test_a_void_without_a_value_is_treated_as_flat():
+    """Assume no move rather than invent a payout."""
+    b = bar(ts=86400, close_time=86400)
+    b["result"] = "void"
+    b["settlement_value"] = None
+    trades, _ = engine.run(spec(), with_fill_bar([bar(ts=0), b]),
+                           starting_bankroll=1000.0, costs=NO_COST)
+    assert trades[0]["gross_pnl"] == pytest.approx(0.0)
+
+
+def test_settlement_value_is_unreadable_before_close():
+    row = bar(ts=0, close_time=86400)
+    row["result"] = "void"
+    row["settlement_value"] = 0.5
+    v = engine.BarView(row)
+    assert v.settlement_value is None, "settlement value is as revealing as result"
