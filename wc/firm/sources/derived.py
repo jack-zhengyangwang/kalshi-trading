@@ -40,6 +40,29 @@ ELO_HOME = 60.0
 FORM_WINDOW = 5
 
 
+def merged_matches(con):
+    """[(close_ts, match_id, home, away, outcome)] from the MERGED table.
+
+    Preferred over `settled_matches`, which sees only what Kalshi traded in the
+    last two months. The merged table chains three feeds into continuous
+    coverage back to 2023, so Elo, form and head-to-head start warm instead of
+    cold — which is the difference between KnowledgeView refusing to price a
+    fixture and having an opinion about it.
+    """
+    rows = con.execute("""
+        SELECT match_id, league, home, away, home_goals, away_goals, known_at
+        FROM matches
+        WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL
+        ORDER BY known_at ASC""").fetchall()
+    out = []
+    for r in rows:
+        hg, ag = r["home_goals"], r["away_goals"]
+        outcome = "home" if hg > ag else ("away" if ag > hg else "draw")
+        out.append((int(r["known_at"]), r["match_id"], r["home"], r["away"],
+                    outcome))
+    return out
+
+
 def settled_matches(con):
     """[(close_ts, event, home, away, outcome)] in chronological order.
 
@@ -86,7 +109,7 @@ def _pair(a, b):
     return "|".join(sorted([a, b]))
 
 
-def build(market_con, facts_con, k=ELO_K, home_bonus=ELO_HOME):
+def build(source_con, facts_con, k=ELO_K, home_bonus=ELO_HOME, use_merged=True):
     """Walk every settled match forward, emitting facts as they become true.
 
     The loop reads state BEFORE updating it, so a fact stamped at match M
@@ -94,7 +117,14 @@ def build(market_con, facts_con, k=ELO_K, home_bonus=ELO_HOME):
     every result into its own prediction — the single easiest way to build a
     backtest that looks brilliant and means nothing.
     """
-    matches = settled_matches(market_con)
+    matches = []
+    if use_merged:
+        try:
+            matches = merged_matches(source_con)
+        except Exception:
+            matches = []                   # no merged table yet
+    if not matches:
+        matches = settled_matches(source_con)
     if not matches:
         return {"matches": 0, "facts": 0}
 
@@ -167,14 +197,21 @@ def build(market_con, facts_con, k=ELO_K, home_bonus=ELO_HOME):
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Rebuild point-in-time soccer knowledge from settled markets.")
+    ap.add_argument("--source-db", default=None,
+                    help="where matches come from (default: the merged table "
+                         "in the soccer DB, falling back to Kalshi settlements)")
     ap.add_argument("--market-db", default=market_data.DB_PATH)
     ap.add_argument("--facts-db", default=F.DB_PATH)
     ap.add_argument("--k", type=float, default=ELO_K)
     args = ap.parse_args(argv)
 
-    mcon = market_data.connect(args.market_db)
     fcon = F.connect(args.facts_db)
-    rep = build(mcon, fcon, k=args.k)
+    # The merged table lives in the soccer DB alongside the facts it feeds.
+    src = args.source_db or args.facts_db
+    scon = market_data.connect(src) if args.source_db else fcon
+    from wc.firm import matches as M
+    M.connect(args.facts_db).close()       # ensure the schema exists
+    rep = build(scon, fcon, k=args.k)
     print(f"\n  {rep['matches']:,} settled matches -> {rep['facts']:,} facts "
           f"({rep.get('teams', 0):,} teams, {rep.get('pairs', 0):,} pairings)")
     print(f"  -> {args.facts_db}\n")

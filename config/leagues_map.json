@@ -1,0 +1,137 @@
+{
+  "_doc": "The join spine. Maps one real-world league across every source that names it differently: Kalshi's series prefix, openfootball's file code, and the API-Football name used by the HF data lake. A league absent from a source simply has null there, and the merge leaves those cells empty rather than guessing.",
+  "_scope": "The five majors plus the minor leagues Kalshi actually trades. Deliberately NOT all 271 leagues in the HF catalogue: a smaller registry is faster, and it keeps 'Arsenal' (England) from colliding with 'Arsenal de Sarandi' (Argentina).",
+  "EPL": {
+    "kalshi": "KXEPLGAME",
+    "openfootball": "en.1",
+    "af_name": "Premier League",
+    "country": "England"
+  },
+  "LaLiga": {
+    "kalshi": "KXLALIGAGAME",
+    "openfootball": "es.1",
+    "af_name": "La Liga",
+    "country": "Spain"
+  },
+  "SerieA": {
+    "kalshi": "KXSERIEAGAME",
+    "openfootball": "it.1",
+    "af_name": "Serie A",
+    "country": "Italy"
+  },
+  "Bundesliga": {
+    "kalshi": "KXBUNDESLIGAGAME",
+    "openfootball": "de.1",
+    "af_name": "Bundesliga",
+    "country": "Germany"
+  },
+  "Ligue1": {
+    "kalshi": "KXLIGUE1GAME",
+    "openfootball": "fr.1",
+    "af_name": "Ligue 1",
+    "country": "France"
+  },
+  "Championship": {
+    "kalshi": "KXEFLCHAMPIONSHIPGAME",
+    "openfootball": "en.2",
+    "af_name": "Championship",
+    "country": "England"
+  },
+  "Eredivisie": {
+    "kalshi": "KXEREDIVISIEGAME",
+    "openfootball": "nl.1",
+    "af_name": "Eredivisie",
+    "country": "Netherlands"
+  },
+  "PrimeiraLiga": {
+    "kalshi": "KXPRIMEIRALIGAGAME",
+    "openfootball": "pt.1",
+    "af_name": "Primeira Liga",
+    "country": "Portugal"
+  },
+  "Bundesliga2": {
+    "kalshi": null,
+    "openfootball": "de.2",
+    "af_name": "2. Bundesliga",
+    "country": "Germany"
+  },
+  "SegundaDiv": {
+    "kalshi": null,
+    "openfootball": "es.2",
+    "af_name": "Segunda Divisi\u00f3n",
+    "country": "Spain"
+  },
+  "MLS": {
+    "kalshi": "KXMLSGAME",
+    "openfootball": null,
+    "af_name": "MLS",
+    "country": "USA"
+  },
+  "LigaMX": {
+    "kalshi": "KXLIGAMXGAME",
+    "openfootball": null,
+    "af_name": "Liga MX",
+    "country": "Mexico"
+  },
+  "BrasileiroA": {
+    "kalshi": "KXBRASILEIROGAME",
+    "openfootball": null,
+    "af_name": "Serie A",
+    "country": "Brazil"
+  },
+  "BrasileiroB": {
+    "kalshi": "KXBRASILEIROBGAME",
+    "openfootball": null,
+    "af_name": "Serie B",
+    "country": "Brazil"
+  },
+  "BrasileiroC": {
+    "kalshi": "KXBRASILEIROCGAME",
+    "openfootball": null,
+    "af_name": "Serie C",
+    "country": "Brazil"
+  },
+  "ArgPrimera": {
+    "kalshi": "KXARGPREMDIVGAME",
+    "openfootball": null,
+    "af_name": "Liga Profesional",
+    "country": "Argentina"
+  },
+  "ArgNacionalB": {
+    "kalshi": "KXARGNACBGAME",
+    "openfootball": null,
+    "af_name": "Primera Nacional",
+    "country": "Argentina"
+  },
+  "Colombia": {
+    "kalshi": "KXDIMAYORGAME",
+    "openfootball": null,
+    "af_name": "Primera A",
+    "country": "Colombia"
+  },
+  "Ecuador": {
+    "kalshi": "KXECULPGAME",
+    "openfootball": null,
+    "af_name": "Liga Pro Serie A",
+    "country": "Ecuador"
+  },
+  "Allsvenskan": {
+    "kalshi": "KXALLSVENSKANGAME",
+    "openfootball": null,
+    "af_name": "Allsvenskan",
+    "country": "Sweden"
+  },
+  "ChinaSL": {
+    "kalshi": "KXCHNSLGAME",
+    "openfootball": null,
+    "af_name": "CSL",
+    "country": "China"
+  },
+  "SerieC": {
+    "kalshi": "KXSERIECGAME",
+    "openfootball": null,
+    "af_name": "Serie C",
+    "country": "Italy"
+  },
+  "_verified": "af_name values checked against the HF league catalogue on 2026-09-09. The catalogue says 'MLS' not 'Major League Soccer' and 'CSL' not 'Super League'; a near-miss here is silent, the league simply never appears."
+}
