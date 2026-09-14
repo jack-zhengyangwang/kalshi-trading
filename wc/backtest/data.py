@@ -110,10 +110,20 @@ CREATE INDEX IF NOT EXISTS idx_markets_series ON markets(series);
 
 
 def connect(path=DB_PATH):
-    """Open (creating if needed) the history DB with the schema applied."""
+    """Open (creating if needed) the history DB with the schema applied.
+
+    WAL, because the collector writes every five minutes while a backtest may
+    be reading the same file. Under the default `delete` journal a reader holds
+    a lock the writer cannot take, and the collector's cycle dies with
+    "database is locked" — losing forward history, the one thing here that
+    cannot be re-fetched. WAL is a property of the file, so setting it once
+    per connection is idempotent and survives a copy of the DB.
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    con = sqlite3.connect(path)
+    con = sqlite3.connect(path, timeout=30.0)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=30000")
     con.executescript(SCHEMA)
     _migrate(con)
     return con
