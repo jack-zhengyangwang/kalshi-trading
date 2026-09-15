@@ -1,0 +1,27 @@
+{
+  "name": "momentum-desk-v2",
+  "description": "[v2] Pure microstructure: recent direction persists. Owes nothing to Elo, goals models, or any fitted state, so it is uncorrelated with the structural desks by construction rather than by hope.",
+  "view": {
+    "view": "momentum",
+    "params": {
+      "lookback": 12,
+      "strength": 0.6
+    }
+  },
+  "bankroll": 1000.0,
+  "allocation": "equal",
+  "agents": [
+    {
+      "name": "edge-taker-v2",
+      "spec": "strategies/agents/edge-taker-v2.json"
+    },
+    {
+      "name": "fade-the-view-v2",
+      "spec": "strategies/agents/fade-the-view-v2.json"
+    }
+  ],
+  "caps": {
+    "daily_spend_dollars": 120.0,
+    "total_exposure_dollars": 500.0
+  }
+}

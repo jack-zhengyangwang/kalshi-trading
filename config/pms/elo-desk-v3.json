@@ -1,0 +1,32 @@
+{
+  "name": "elo-desk-v3",
+  "description": "[v3] Team strength learned point-in-time by walking settled matches forward, so a rating used at time t reflects only matches finished before t. The lookahead-free counterpart to structural-desk, and the only view here whose backtest is promotion evidence.",
+  "view": {
+    "view": "elo",
+    "params": {
+      "k": 24.0,
+      "home_bonus": 60.0,
+      "draw_share": 0.26
+    }
+  },
+  "bankroll": 1000.0,
+  "allocation": "equal",
+  "agents": [
+    {
+      "name": "edge-taker-v3",
+      "spec": "strategies/agents/edge-taker-v3.json"
+    },
+    {
+      "name": "fade-the-view-v3",
+      "spec": "strategies/agents/fade-the-view-v3.json"
+    },
+    {
+      "name": "conviction-only-v3",
+      "spec": "strategies/agents/conviction-only-v3.json"
+    }
+  ],
+  "caps": {
+    "daily_spend_dollars": 120.0,
+    "total_exposure_dollars": 500.0
+  }
+}

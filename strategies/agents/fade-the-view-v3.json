@@ -1,0 +1,59 @@
+{
+  "name": "fade-the-view-v3",
+  "version": 1,
+  "description": "The mirror of edge-taker: sell the leg when the PM's view says the market is OVERpricing it. v3: v2's exits, plus an entry that demands more edge (0.10) than the round trip costs and will only pay a spread of 4 cents or less.",
+  "side": "no",
+  "universe": {
+    "series": [
+      "*"
+    ],
+    "min_volume": 20
+  },
+  "entry": {
+    "all": [
+      {
+        "signal": "edge",
+        "op": "gt",
+        "value": 0.1
+      },
+      {
+        "signal": "price",
+        "op": "between",
+        "value": [
+          0.1,
+          0.9
+        ]
+      },
+      {
+        "signal": "spread",
+        "op": "lt",
+        "value": 4
+      }
+    ]
+  },
+  "sizing": {
+    "method": "kelly",
+    "fraction": 0.2,
+    "max_bet_dollars": 8.0,
+    "max_concurrent_positions": 25
+  },
+  "exit": {
+    "any": [
+      {
+        "signal": "unrealized_pnl_pct",
+        "op": "lt",
+        "value": -0.5
+      },
+      {
+        "signal": "hold_to_settlement",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "caps": {
+    "daily_spend_dollars": 60.0,
+    "per_market_dollars": 8.0,
+    "total_exposure_dollars": 300.0
+  }
+}

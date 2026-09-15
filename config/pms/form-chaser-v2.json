@@ -1,0 +1,30 @@
+{
+  "name": "form-chaser-v2",
+  "description": "[v2] The same knowledge, weighted the opposite way: recent form over long-run rating, and almost no credit for home advantage. Deliberately disagrees with knowledge-desk on the same facts \u2014 which is the whole point of a firm rather than a model.",
+  "view": {
+    "view": "knowledge",
+    "params": {
+      "elo_weight": 0.15,
+      "form_weight": 0.7,
+      "home_weight": 0.15,
+      "min_matches": 3
+    }
+  },
+  "bankroll": 1000.0,
+  "allocation": "equal",
+  "learns": true,
+  "agents": [
+    {
+      "name": "edge-taker-v2",
+      "spec": "strategies/agents/edge-taker-v2.json"
+    },
+    {
+      "name": "fade-the-view-v2",
+      "spec": "strategies/agents/fade-the-view-v2.json"
+    }
+  ],
+  "caps": {
+    "daily_spend_dollars": 120.0,
+    "total_exposure_dollars": 500.0
+  }
+}

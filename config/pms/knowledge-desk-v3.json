@@ -1,0 +1,34 @@
+{
+  "name": "knowledge-desk-v3",
+  "description": "[v3] Trades the firm's soccer knowledge base: Elo, recent form, and home/away records, all rebuilt point-in-time by walking finished matches forward. Refuses to price a fixture it has seen fewer than 3 times \u2014 a thin record is not a small edge, it is no edge. The lookahead-free desk whose backtest counts as promotion evidence.",
+  "view": {
+    "view": "knowledge",
+    "params": {
+      "elo_weight": 0.6,
+      "form_weight": 0.25,
+      "home_weight": 0.15,
+      "min_matches": 3
+    }
+  },
+  "bankroll": 1000.0,
+  "allocation": "equal",
+  "learns": true,
+  "agents": [
+    {
+      "name": "edge-taker-v3",
+      "spec": "strategies/agents/edge-taker-v3.json"
+    },
+    {
+      "name": "fade-the-view-v3",
+      "spec": "strategies/agents/fade-the-view-v3.json"
+    },
+    {
+      "name": "conviction-only-v3",
+      "spec": "strategies/agents/conviction-only-v3.json"
+    }
+  ],
+  "caps": {
+    "daily_spend_dollars": 120.0,
+    "total_exposure_dollars": 500.0
+  }
+}

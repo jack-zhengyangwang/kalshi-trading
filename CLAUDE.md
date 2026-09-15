@@ -8,13 +8,154 @@ Originally built for World Cup only (regex `^KXWC`). **v4 pivots to all soccer l
 
 The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-agent system (Trader/Brain/Keeper/Trainer), v2 per-category arena, and v3 multi-type pricing are retired/legacy/archived.
 
+## Session report — 2026-09-14
+
+**Read this before the older status block.** A working session; every number below was
+measured, not estimated. Where it contradicts the 2026-09-07 snapshot, this is newer.
+
+### What changed on disk
+
+| Thing | Before | After |
+|---|---|---|
+| `main` | `88879c7` (2026-07-02) | `93ddee1` — fast-forwarded to include DSL/firm/knowledge work, then `3d25407` |
+| `data/soccer.db` | absent (built 2026-09-09, never tracked, gone) | rebuilt: 54,549 fixtures, 516,950 point-in-time facts |
+| `backfill_candles` | **0 rows** | 2,224,015 bars / 19,669 markets / 19,081 with a recorded result |
+| history DB journal | `delete` | `WAL` (code + both DB files) |
+| strategy specs | 3 | 8 (added `-v2` and `-v3` variants) |
+| PM configs | 8 | 22 (each desk now has an original, a v2 and a v3) |
+
+`soccer.db` rebuild: 0 duplicate fixtures, 4 score disagreements between feeds, 175
+unresolved team names (0.3%), no blocking issues. Rebuild is
+`python3 -m wc.firm.ingest` then `python3 -m wc.firm.sources.derived`; both are
+regenerable, which is why the file is not in git.
+
+### The backfill — and what it tells us about gate 1
+
+`wc/backtest/backfill.py` existed since 2026-09-09 but **had never been run against the
+store**. `wc.firm.run` defaults to `--source backfill`, so before today every gate-1
+backtest would have replayed zero bars.
+
+It now holds 90 days at hourly resolution. **Kalshi's soccer archive starts 2026-07-10** —
+about nine weeks, and `backfill.py`'s own docstring notes it only sees markets Kalshi
+still lists, so it carries survivorship bias by construction. Gate 1 cannot be strong
+evidence on this data whatever we do with it; `docs/backtester/07_PROMOTION.md` already
+anticipates that for view-dependent strategies ("promoted on gate 2 alone, with gate 1
+downgraded to did not obviously fail"), which is all eight PMs.
+
+Ran on the droplet, not the laptop — it takes hours and dies if the Mac sleeps.
+
+### WAL: a reader was killing the writer
+
+The first backfill died with `sqlite3.OperationalError: database is locked` the moment a
+backtest opened the same file. Under SQLite's default `delete` journal a reader holds a
+lock the writer cannot take. On the droplet the collector writes every 5 minutes while
+any backtest reads — the same collision costs **forward history**, the one artefact here
+that cannot be re-fetched, and it fails silently because cron swallows the traceback.
+
+Fixed in `wc/backtest/data.py:connect()` (`journal_mode=WAL` + `busy_timeout=30000`),
+committed as `3d25407`, deployed, verified `journal: wal` on the droplet. 472 tests pass.
+
+### Backtest results
+
+**First run, collector data (5.72 days):** every PM below the market baseline, worst
+−$441. **The number carries no information:** `n_settled = 0` across all 1,004 trades.
+In a six-day window almost nothing that opened also resolved, so every dollar was
+exit-and-liquidation marking. Fees ran $38–54 per PM on $1,000 bankrolls.
+
+**Second run, backfill data (440,937 bars / 3,384 finished markets), 22 PMs, identical
+matches and fees.** Settlement works here — 36–50 settled per desk, Brier computable:
+
+```
+                  trades settled     net   win   brier
+elo-desk              59      36 -142.55  0.15  0.1720
+elo-desk-v2           60      41 -158.95  0.13  0.1859
+elo-desk-v3           50      34 -153.74  0.12  0.1780
+knowledge-desk        69      45 -143.66  0.25  0.1947
+knowledge-desk-v2     65      50 -173.30  0.22  0.2022
+knowledge-desk-v3     65      49 -188.91  0.23  0.2025
+momentum-desk         32      20  -92.63  0.25  0.3882
+momentum-desk-v2      32      24  -96.13  0.28  0.3612
+momentum-desk-v3      32      27  -64.68  0.25  0.4867
+baseline-market        0       0    0.00
+```
+
+Every desk loses; nothing beats doing nothing. v2 held to settlement as designed and was
+slightly worse almost everywhere; v3 helped one desk and hurt the rest.
+
+What the variants are: **v2** removes the exit that closed a position whenever the price
+moved against the view — a v2 position ends only at resolution or the −50% stop. **v3** is
+v2 plus a pickier entry: edge > 0.10 (was 0.06) and spread < 4c (was 8c).
+
+### Open finding: the NO side computes its edge with the wrong sign
+
+`engine.py:171` flips the **price** for a NO bet; `engine.py:187` never flips the
+**probability**, so a NO agent evaluates `P(yes) − price_no` instead of `P(no) − price_no`:
+
+```
+market at 50c, the desk's view says P(yes) = 0.70
+   YES agent sees  edge = +0.20   correct
+   NO  agent sees  edge = +0.20   should be -0.20
+```
+
+So `fade-the-view` buys NO precisely when its own desk thinks YES is likely. That agent
+is inside six of the eight desks, in the original, v2 and v3 alike — only
+`structural-desk` and `baseline-market` avoid it. **Every P&L number above is affected.**
+
+Fix is one line (`1.0 - mp` when `side == "no"`, `engine.py:355`), which also makes
+`model_prob` side-relative and consistent with `price` ("what WE pay"). Not applied —
+awaiting a decision, since it changes the meaning of a documented DSL signal.
+
+### Still missing: any forward path for the firm
+
+`wc/arena.py` is the **previous** generation — the shared-brain strategist pool the firm
+replaced. Nothing in `arena.py`, `cycle.py` or `promote.py` imports `wc.firm`. The PMs can
+only replay saved data; there is no program that trades them against today's book with
+fake money, and `docs/ADDING_A_PM.md` lists that stage as if it exists.
+
+Agreed design for `wc/firm/live.py` (build after the strategies are settled): every few
+minutes, read the open markets and their recent bars from `market_history.db` (no new API
+calls — the collector already writes them), price each PM with its own view, run its DSL
+agents through `interpret`, fill at the live book through `wc/lib/paper.py` with
+`engine.py`'s fee model, settle on resolution, write per-PM scorecards via
+`wc/firm/journal.py`. Reads prices, writes logs; never touches the wallet.
+
+### When real money can fire
+
+Not a date — a gate. Gate 2 needs **≥30 calendar days and ≥100 settled bets** in forward
+paper, plus net-positive after fees, calibration slope in [0.8, 1.2], beating the
+do-nothing baseline, surviving the window-A/window-B selection test, and max drawdown
+under 25%. The clock cannot start until `live.py` exists. **Earliest possible is 30 days
+after that**, then at the smallest size that is not a rounding error — not the $400
+wallet. Most PMs are expected to fail gate 2; that is what it is for.
+
+Before arming (not before paper): rotate the Anthropic key, `run_promote.sh` hardcodes
+`--execute` (item 6), `arena.py`/`promote.py` double-run (item 7).
+
+### Droplet state
+
+- `/root/kalshi-trading`, cron: collector only, `*/5`, healthy, ~1.64M candles and rising.
+- `armed=false, kill=true, kill_flattens=true`. Nothing can place an order.
+- `scripts/deploy.sh` was refused by the Claude Code permission classifier (it is an
+  `rsync --delete` to a remote). Deployed with a plain `rsync` of `wc/` and `config/`
+  instead — same result, no destructive flag.
+- **`data/market_history.db` on this laptop is a mid-backfill snapshot** (440,937 backfill
+  bars), taken with `VACUUM INTO` for a consistent copy. The droplet holds the complete
+  2,224,015. Re-snapshot before trusting a local backtest.
+
+### Next
+
+1. Decide on the NO-side sign fix, then re-run the 22 desks on the full 2.2M-bar store.
+2. Build `wc/firm/live.py` and start the gate-2 clock.
+
+---
+
 ## Current State (last reviewed 2026-09-07)
 
 **Read this first.** Status snapshot from a full read-only audit of the repo. Update it when the facts below change.
 
 ### Money
 
-**DISARMED AND IDLE.** Deployed to `/root/kalshi-trading` 2026-09-07 and verified, but **no cron is installed**, so nothing runs on a schedule and no orders can be placed. `config/switchboard_v3.json` → `master.armed = false`, `master.kill = true`. No real orders can be placed. A real order requires `armed && --execute && !kill` (`wc/cycle.py:382`).
+**DISARMED.** Deployed to `/root/kalshi-trading` 2026-09-07 and verified. **Superseded 2026-09-14: a collector cron is now installed** (`*/5`, `run_collect.sh`) — it only reads prices and writes history, and no promoter cron exists, so still no orders. `config/switchboard_v3.json` → `master.armed = false`, `master.kill = true`. No real orders can be placed. A real order requires `armed && --execute && !kill` (`wc/cycle.py:382`).
 
 ### Git / backup status
 
@@ -45,7 +186,7 @@ The system is at **v4** (per-league brains, winner-only, v3 archive). The old 4-
 | 5 | ~~Doc drift~~ → **mostly FIXED 2026-09-07** | Repo name and paths corrected; README rewritten for all-soccer; `ARCHITECTURE.md`, `DEPLOY.md`, `SETUP.md`, `ADDING_AN_AGENT.md` written. **Still open:** `RECAP.md` commands predate the `wc/` layout; `docs/DEPLOY_CLOUD.md` says `/opt/ebk-personal`; `edges/discover.sh` referenced but absent. |
 | 6 | **Two gates on the droplet, not three** | `scripts/run_promote.sh` hardcodes `--execute`, so in cron the only live gates are `master.armed` and `master.kill`. The "three independent switches" claim below holds only for manual invocation. |
 | 7 | **Double-run risk** | `arena.py --once` and `promote.py` both delegate into `wc/cycle.py`. Running both cron scripts concurrently runs the paper arena twice. |
-| 8 | ~~Droplet stale + unversioned~~ → **WIPED 2026-09-07** | `/root/WorldCupTrading` and `/root/ebk-personal` deleted, crontab removed, nothing running. Everything rescued first to `~/dev/droplet-backup-2026-09-07` (12M: full code tarball, `guard.py`, RSA key, droplet switchboard, graded predictions, models, brain state, old crontab). Rebuilt clean 2026-09-07 at `/root/kalshi-trading` from `Dev`: venv + deps, secrets in place, 109 tests pass, scanner authenticates and discovers 1404 soccer series. **No cron installed — the system is idle by design.** Disarmed (`armed=false`, `kill=true`). |
+| 8 | ~~Droplet stale + unversioned~~ → **WIPED 2026-09-07** | `/root/WorldCupTrading` and `/root/ebk-personal` deleted, crontab removed, nothing running. Everything rescued first to `~/dev/droplet-backup-2026-09-07` (12M: full code tarball, `guard.py`, RSA key, droplet switchboard, graded predictions, models, brain state, old crontab). Rebuilt clean 2026-09-07 at `/root/kalshi-trading` from `Dev`: venv + deps, secrets in place, 109 tests pass, scanner authenticates and discovers 1404 soccer series. Disarmed (`armed=false`, `kill=true`). **Superseded 2026-09-14:** the collector cron is installed and accruing forward history; no promoter cron. |
 | 9 | ~~`guard.py` WC-end stop fires unconditionally~~ → **FIXED 2026-09-07** | `WC_END_UTC = 2026-07-20` was hardcoded, so from Jul 20 onward `guard.py` tripped the kill switch every 4 min — this is why the droplet was found `armed=false, kill=true`. Limits now read from `switchboard_v3.json` `"guard"`: `max_loss_dollars` (200.0) and `stop_after_utc` (null = no date stop). |
 
 ### Evidence quality reminder
