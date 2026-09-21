@@ -21,7 +21,7 @@ def base():
     }
 
 
-def test_baseline_spec_is_valid():
+def test_baseline_spec_isbase():
     assert validate(base())["name"] == "t"
 
 
@@ -151,3 +151,11 @@ def test_kelly_passthrough_keys_accepted():
     s["sizing"] = {"method": "kelly", "fraction": 0.25, "min_edge": 0.03,
                    "min_bet_dollars": 1.0, "tvm_rate": 0.08}
     assert validate(s) is s
+
+
+def test_universe_leg_is_known_and_closed():
+    ok = dict(base(), universe={"series": ["*"], "leg": "draw"})
+    validate(ok)
+    for bad in ("tie", "Draw", 3):
+        with pytest.raises(SpecError):
+            validate(dict(base(), universe={"leg": bad}))

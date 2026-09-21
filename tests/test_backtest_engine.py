@@ -328,6 +328,21 @@ def test_no_side_sees_its_own_probability():
     assert no_trades[0]["outcome"] == 1
 
 
+def test_bar_view_names_the_leg():
+    """A draw-only benchmark needs to know which leg a market is. Classified
+    from the fixture the collector stored, never from the ticker string."""
+    def leg(sub, home="Arsenal", away="Chelsea"):
+        row = dict(bar(), sub_title=sub, home=home, away=away)
+        return engine.BarView(row).to_ctx("yes")["leg"]
+    assert leg("Tie") == "draw"
+    assert leg("Draw") == "draw"
+    assert leg("Arsenal") == "home"
+    assert leg("Chelsea") == "away"
+    assert leg("Over 2.5") == "other"
+    assert leg("Reg Time: Tie") == "other"     # a different market, not the draw
+    assert engine.BarView(bar()).to_ctx("yes")["leg"] is None   # no fixture stored
+
+
 def test_rejection_reasons_are_counted():
     """An unexecutable strategy must be visibly unexecutable, not silently
     trade-free."""

@@ -61,7 +61,7 @@ One file, `config/pms/<name>.json`:
   "name": "my-desk",
   "description": "What this PM believes, and why that might be true.",
   "view": {"view": "elo", "params": {"k": 32.0, "home_bonus": 40.0}},
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "agents": [
     {"name": "edge-taker", "spec": "strategies/agents/edge-taker.json"}

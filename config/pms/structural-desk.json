@@ -2,7 +2,7 @@
   "name": "structural-desk",
   "description": "The existing v4 Poisson/Elo goals model, with state this PM owns. Carries model-fitted lookahead in backtest (its Elo is a present-day snapshot), so its results rank ideas but are NOT promotion evidence. Compare it against elo-desk to see what the lookahead is worth.",
   "view": {"view": "structural"},
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "agents": [
     {"name": "edge-taker",      "spec": "strategies/agents/edge-taker.json"},

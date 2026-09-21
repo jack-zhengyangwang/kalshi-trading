@@ -51,6 +51,8 @@ POSITION_SIGNALS = {
 OPS = {"lt", "lte", "gt", "gte", "eq", "between"}
 COMBINATORS = {"all", "any"}
 SIDES = {"yes", "no"}
+# Which leg of a fixture a market is; classified by engine.BarView.leg.
+LEGS = {"home", "away", "draw"}
 SIZING_METHODS = {"kelly", "fixed", "fraction_of_bankroll"}
 
 # Kelly parameters are passed through to wc/lib/kelly.py — the live path's
@@ -193,7 +195,7 @@ def validate(spec):
 
     known_uni = {"series", "max_yes_price_cents", "min_yes_price_cents",
                  "min_volume", "min_open_interest",
-                 "min_days_to_resolution", "max_days_to_resolution"}
+                 "min_days_to_resolution", "max_days_to_resolution", "leg"}
     for key in uni:
         if key not in known_uni:
             hint = ""
@@ -205,6 +207,9 @@ def validate(spec):
     for key in ("max_yes_price_cents", "min_yes_price_cents"):
         if key in uni and not (0 <= uni[key] <= 100):
             _fail(f"universe.{key} must be within 0-100 cents, got {uni[key]}")
+
+    if "leg" in uni and uni["leg"] not in LEGS:
+        _fail(f"universe.leg must be one of {sorted(LEGS)}, got {uni['leg']!r}")
 
     return spec
 

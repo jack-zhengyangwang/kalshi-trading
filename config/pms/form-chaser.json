@@ -2,7 +2,7 @@
   "name": "form-chaser",
   "description": "The same knowledge, weighted the opposite way: recent form over long-run rating, and almost no credit for home advantage. Deliberately disagrees with knowledge-desk on the same facts — which is the whole point of a firm rather than a model.",
   "view": {"view": "knowledge", "params": {"elo_weight": 0.15, "form_weight": 0.7, "home_weight": 0.15, "min_matches": 3}},
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "learns": true,
   "agents": [

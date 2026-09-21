@@ -82,6 +82,16 @@ class Costs:
         return math.ceil(self.fee_rate * contracts * price * (1.0 - price) * 100.0) / 100.0
 
 
+def _norm(s):
+    return "".join(c for c in (s or "").lower() if c.isalnum())
+
+
+def _same(a, b):
+    """Loose team-name match, the same rule wc/firm/views.py uses."""
+    na, nb = _norm(a), _norm(b)
+    return bool(na) and bool(nb) and (na in nb or nb in na)
+
+
 class BarView:
     """What a strategy is allowed to see at one instant.
 
@@ -91,7 +101,7 @@ class BarView:
 
     __slots__ = ("ticker", "series", "ts", "yes_bid", "yes_ask", "close",
                  "volume", "open_interest", "close_time", "_result",
-                 "_settlement_value", "_history")
+                 "_settlement_value", "sub_title", "home", "away", "_history")
 
     def __init__(self, row, history=None):
         # `history` is a list of trailing {price, open_interest} dicts — the
@@ -110,7 +120,28 @@ class BarView:
         keys = row.keys() if hasattr(row, "keys") else ()
         self._settlement_value = (row["settlement_value"]
                                   if "settlement_value" in keys else None)
+        # The fixture, as the collector resolved it at collection time. Needed
+        # to say WHICH leg of a match this market is (see `leg`).
+        self.sub_title = row["sub_title"] if "sub_title" in keys else None
+        self.home = row["home"] if "home" in keys else None
+        self.away = row["away"] if "away" in keys else None
         self._history = history or []
+
+    def leg(self):
+        """'home' | 'away' | 'draw' | 'other', or None when no fixture is
+        stored. Classified from the fixture, never from the ticker string: a
+        strategy that says "only the draw" must mean the draw and not, say,
+        the regulation-time tie of a knockout market."""
+        if not self.home or not self.away or not self.sub_title:
+            return None
+        sub = _norm(self.sub_title)
+        if sub in ("tie", "draw"):
+            return "draw"
+        if _same(self.sub_title, self.home):
+            return "home"
+        if _same(self.sub_title, self.away):
+            return "away"
+        return "other"
 
     @property
     def settled(self):
@@ -185,6 +216,7 @@ class BarView:
             "open_interest": self.open_interest,
             "model_prob": model_prob,
             "edge": (model_prob - price) if (model_prob is not None and price is not None) else None,
+            "leg": self.leg(),
         }
         if self._history:
             ctx.update(self._trailing_features(price))

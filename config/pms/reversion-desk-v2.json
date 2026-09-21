@@ -8,7 +8,7 @@
       "strength": 0.5
     }
   },
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "agents": [
     {

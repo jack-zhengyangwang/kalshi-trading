@@ -71,6 +71,15 @@ def test_universe_series_wildcard():
                                          {"series": "KXEPL"})
 
 
+def test_universe_leg_filters_on_the_leg():
+    """`leg` names WHICH side of a fixture the market is. A draw-only strategy
+    must see draw legs and nothing else; a missing leg is not a match."""
+    spec = {"universe": {"leg": "draw"}}
+    assert interpret.passes_universe(spec, {"leg": "draw"})
+    assert not interpret.passes_universe(spec, {"leg": "home"})
+    assert not interpret.passes_universe(spec, {})
+
+
 # ── sizing ────────────────────────────────────────────────────────────────────
 
 def test_fixed_sizing_respects_cap():

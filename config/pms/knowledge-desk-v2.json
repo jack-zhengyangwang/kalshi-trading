@@ -10,7 +10,7 @@
       "min_matches": 3
     }
   },
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "learns": true,
   "agents": [

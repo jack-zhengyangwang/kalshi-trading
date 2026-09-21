@@ -2,7 +2,7 @@
   "name": "knowledge-desk",
   "description": "Trades the firm's soccer knowledge base: Elo, recent form, and home/away records, all rebuilt point-in-time by walking finished matches forward. Refuses to price a fixture it has seen fewer than 3 times — a thin record is not a small edge, it is no edge. The lookahead-free desk whose backtest counts as promotion evidence.",
   "view": {"view": "knowledge", "params": {"elo_weight": 0.6, "form_weight": 0.25, "home_weight": 0.15, "min_matches": 3}},
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "learns": true,
   "agents": [

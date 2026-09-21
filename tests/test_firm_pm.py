@@ -6,6 +6,9 @@ independent traders, one risk limit.
 """
 import json
 
+# Every shipped desk starts here. Change it in every config/pms/*.json at once.
+FIRM_STAKE = 500.0
+
 import pytest
 
 from wc.backtest import engine
@@ -136,3 +139,12 @@ def test_the_firm_holds_more_than_one_view():
     """The whole point. PMs sharing one view are one opinion sized several
     ways, and ranking them is ranking risk-parameter luck."""
     assert len({m.view.name for m in pm_mod.load_all()}) >= 3
+
+
+def test_every_shipped_pm_starts_with_the_same_bankroll():
+    """The leaderboard is a race. A desk with more capital can post a larger
+    dollar P&L without being better, so every shipped PM starts with the
+    firm's standard stake — and a config that gives one desk more fails here
+    rather than quietly winning."""
+    rolls = {m.name: m.bankroll for m in pm_mod.load_all()}
+    assert set(rolls.values()) == {FIRM_STAKE}, rolls

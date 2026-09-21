@@ -4,7 +4,7 @@
   "view": {
     "view": "structural"
   },
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "agents": [
     {

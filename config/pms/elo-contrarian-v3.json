@@ -9,7 +9,7 @@
       "draw_share": 0.3
     }
   },
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "weighted",
   "agents": [
     {

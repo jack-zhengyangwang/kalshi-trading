@@ -1,0 +1,9 @@
+{
+  "name": "draw-desk",
+  "description": "Benchmark desk: backs the draw in every match, unconditionally. Sits on the market view so it holds no opinion of its own; its P&L is the draw leg's base rate minus what the book charges for it. A second honest zero next to baseline-market, concentrated in the one leg every football model finds hardest to price.",
+  "view": {"view": "market"},
+  "bankroll": 500.0,
+  "allocation": "equal",
+  "agents": [{"name": "always-draw", "spec": "strategies/agents/always-draw.json"}],
+  "caps": {"daily_spend_dollars": 60.0, "total_exposure_dollars": 300.0}
+}

@@ -2,7 +2,7 @@
   "name": "elo-contrarian",
   "description": "The same method as elo-desk with genuinely different beliefs: a faster k, no home advantage, and a wider draw share. Two Elo PMs that disagree are the cheapest real diversity available — same code, independent state.",
   "view": {"view": "elo", "params": {"k": 48.0, "home_bonus": 0.0, "draw_share": 0.30}},
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "weighted",
   "agents": [
     {"name": "edge-taker",    "spec": "strategies/agents/edge-taker.json",    "weight": 2.0},

@@ -1,0 +1,18 @@
+{
+  "name": "always-draw",
+  "version": 1,
+  "description": "A benchmark, not a strategy: buy YES on every draw leg the book offers, fixed size, hold to settlement. Has no view — model_prob is ignored — so it measures the draw leg's base rate against its price. Draws resolve YES ~25% and trade ~26c in the archive, so this should lose roughly spread plus fees; anything else is a finding about the leg, not about a model.",
+  "side": "yes",
+  "universe": {"series": ["*"], "leg": "draw", "min_volume": 20},
+  "entry": {"all": [
+    {"signal": "price",  "op": "between", "value": [0.10, 0.60]},
+    {"signal": "spread", "op": "lt", "value": 8}
+  ]},
+  "sizing": {"method": "fixed", "dollars": 8.0, "max_bet_dollars": 8.0,
+             "max_concurrent_positions": 25},
+  "exit": {"any": [
+    {"signal": "hold_to_settlement", "op": "eq", "value": true}
+  ]},
+  "caps": {"daily_spend_dollars": 60.0, "per_market_dollars": 8.0,
+           "total_exposure_dollars": 300.0}
+}

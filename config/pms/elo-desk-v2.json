@@ -9,7 +9,7 @@
       "draw_share": 0.26
     }
   },
-  "bankroll": 1000.0,
+  "bankroll": 500.0,
   "allocation": "equal",
   "agents": [
     {

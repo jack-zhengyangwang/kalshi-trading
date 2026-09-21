@@ -94,6 +94,10 @@ def passes_universe(spec, ctx):
         if ctx.get("series") not in series:
             return False
 
+    leg = uni.get("leg")
+    if leg and ctx.get("leg") != leg:
+        return False
+
     return True
 
 
