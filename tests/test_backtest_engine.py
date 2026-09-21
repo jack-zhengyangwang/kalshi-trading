@@ -293,6 +293,41 @@ def test_no_side_buys_the_complement():
     assert trades[0]["outcome"] == 1
 
 
+def test_no_side_sees_its_own_probability():
+    """A NO agent's edge must be P(no) - price_no, not P(yes) - price_no.
+
+    Market at 50c and the desk says P(yes) = 0.70. A YES agent has +0.20 of
+    edge; a NO agent has -0.20 and must NOT trade. Before the fix both agents
+    saw +0.20 and fade-the-view bought NO exactly when its own desk favoured
+    YES. The recorded model_prob is side-relative too, so the journal's Brier
+    scores a NO bet against the probability of NO, matching `outcome`."""
+    bars = with_fill_bar([bar(ts=0, bid=49, ask=51, close=50),
+                          bar(ts=86400, result="no", close_time=86400)])
+    entry = {"all": [{"signal": "edge", "op": "gt", "value": 0.06}]}
+    probs = {("M1", 0): 0.70, ("M1", 60): 0.70}
+
+    yes_trades, _ = engine.run(spec(side="yes", entry=entry), bars,
+                               starting_bankroll=1000.0, costs=NO_COST,
+                               model_probs=probs)
+    assert len(yes_trades) == 1
+    assert yes_trades[0]["model_prob"] == pytest.approx(0.70)
+
+    no_trades, rej = engine.run(spec(side="no", entry=entry), bars,
+                                starting_bankroll=1000.0, costs=NO_COST,
+                                model_probs=probs)
+    assert no_trades == []
+    assert rej.get("entry_conditions", 0) > 0
+
+    # Flip the view: P(yes) = 0.30 means P(no) = 0.70, now NO has the edge.
+    probs = {("M1", 0): 0.30, ("M1", 60): 0.30}
+    no_trades, _ = engine.run(spec(side="no", entry=entry), bars,
+                              starting_bankroll=1000.0, costs=NO_COST,
+                              model_probs=probs)
+    assert len(no_trades) == 1
+    assert no_trades[0]["model_prob"] == pytest.approx(0.70)
+    assert no_trades[0]["outcome"] == 1
+
+
 def test_rejection_reasons_are_counted():
     """An unexecutable strategy must be visibly unexecutable, not silently
     trade-free."""

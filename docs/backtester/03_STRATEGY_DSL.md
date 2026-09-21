@@ -107,8 +107,8 @@ view only; none can read the future.
 | `oi_change_pct` | float | Positioning shift |
 | `price_change_pct` | float | Over a stated lookback |
 | `volatility` | float | Trailing window |
-| `model_prob` | 0–1 | Our own `p_fair` from the brains, when available |
-| `edge` | float | `model_prob - price`. Bridges the DSL to the existing v4 brains |
+| `model_prob` | 0–1 | Our own `p_fair` from the brains, when available. **Side-relative, like `price`:** a `"side": "yes"` agent sees P(yes), a `"side": "no"` agent sees P(no) = 1 − P(yes) |
+| `edge` | float | `model_prob - price`, so always "our probability minus what we pay" on either side. Bridges the DSL to the existing v4 brains |
 | `unrealized_pnl_pct` | float | Position-level, exits only |
 | `hold_to_settlement` | bool | Terminal exit |
 

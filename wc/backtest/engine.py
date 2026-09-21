@@ -351,8 +351,12 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
             caps = spec["caps"]
             max_positions = spec["sizing"].get("max_concurrent_positions")
             price = mid if side == "yes" else 1.0 - mid
+            # Side-relative, like `price`: a NO agent's view is P(no), so its
+            # edge is P(no) - price_no and its recorded model_prob matches
+            # `outcome` (1 = OUR side won) in the journal's Brier.
+            book_mp = mp if (mp is None or side == "yes") else 1.0 - mp
 
-            ctx = view.to_ctx(side, model_prob=mp)
+            ctx = view.to_ctx(side, model_prob=book_mp)
             ctx["volume_24h"] = vol_day
 
             def close_out(pos, rec):
@@ -457,7 +461,7 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
                 rejections["pm_exposure_cap"] += 1
                 continue
 
-            intent = {"stake": stake, "decided_ts": view.ts, "model_prob": mp,
+            intent = {"stake": stake, "decided_ts": view.ts, "model_prob": book_mp,
                       "series": view.series, "bars_left": delay}
             if delay <= 0:
                 filled = _open_position(intent, view, side, costs,
