@@ -1,6 +1,6 @@
 # Pre-registration: Batch 1 strategy tests
 
-**Status: DRAFT, awaiting Jack's sign-off.** Nothing below has been run.
+**Status: SIGNED OFF by Jack, 2026-09-28.** Nothing below has been run.
 Rules, periods and pass criteria are fixed here **before** any test. The git commit that
 freezes each rule is its timestamp. Changing a rule after its test has run means starting a new
 pre-registration, not editing this one.
@@ -106,8 +106,11 @@ pre-registration, not editing this one.
 
 ## Sign-off
 
-- [ ] Rules and ranges above are OK
-- [ ] Develop / test split (Aug 31) is OK
-- [ ] 99% intervals for passing are OK
-- [ ] #3 odds source: (a) / (b) / (c)
-- [ ] Go for #4 first
+- [x] Rules and ranges above are OK
+- [x] Develop / test split (Aug 31) is OK
+- [x] 99% intervals for passing are OK
+- [x] #3 odds source: **(a) forward only**: collect ESPN odds hourly on the droplet from now on
+- [x] Go for #4 first
+
+Signed off 2026-09-28. Because #3 is forward only, it has no develop period to tune X in.
+**Proposed, to confirm:** fix X = 3¢ (the middle of its range) before the forward clock starts.
