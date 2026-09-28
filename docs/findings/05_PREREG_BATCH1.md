@@ -114,3 +114,5 @@ pre-registration, not editing this one.
 
 Signed off 2026-09-28. Because #3 is forward only, it has no develop period to tune X in.
 **Proposed, to confirm:** fix X = 3¢ (the middle of its range) before the forward clock starts.
+
+**Results:** [06_BATCH1_RESULTS.md](06_BATCH1_RESULTS.md).
