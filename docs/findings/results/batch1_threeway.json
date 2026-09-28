@@ -1,0 +1,18 @@
+{
+ "develop": {
+  "games_3_legs_quoted": 636,
+  "bars_checked": 51362,
+  "games_with_gap": 0,
+  "share_with_gap": 0.0,
+  "passes": false,
+  "gaps": []
+ },
+ "test": {
+  "games_3_legs_quoted": 224,
+  "bars_checked": 21591,
+  "games_with_gap": 0,
+  "share_with_gap": 0.0,
+  "passes": false,
+  "gaps": []
+ }
+}
