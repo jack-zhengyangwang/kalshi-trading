@@ -135,10 +135,24 @@ def test_the_firm_has_a_do_nothing_baseline():
     assert any(m.view.name == "market" for m in pm_mod.load_all())
 
 
-def test_the_firm_holds_more_than_one_view():
-    """The whole point. PMs sharing one view are one opinion sized several
-    ways, and ranking them is ranking risk-parameter luck."""
-    assert len({m.view.name for m in pm_mod.load_all()}) >= 3
+def test_the_firm_holds_more_than_one_manager():
+    """The whole point. Every managed desk starts blank and its manager
+    designs it, so the firm's diversity is its managers: several different
+    models, not one model sized several ways. The benchmarks stay fixed."""
+    firm = pm_mod.load_all()
+    managed = [m for m in firm if m.manager_spec["type"] == "llm"]
+    fixed = [m for m in firm if m.manager_spec["type"] == "none"]
+    assert len({m.manager_spec["model"] for m in managed}) >= 3
+    assert all(m.cfg.get("founding") for m in managed), "a managed desk starts blank"
+    assert {m.name for m in fixed} >= {"baseline-market", "draw-desk", "longshot-fader",
+                                       "favourite-desk", "elo-desk-fixed"}
+    # a benchmark has no manager and no LLM; the view-free ones sit on `market`
+    for m in fixed:
+        assert m.manager_spec == {"type": "none"} and not m.cfg.get("founding")
+    by = {m.name: m for m in fixed}
+    assert by["longshot-fader"].agents[0].spec["side"] == "no"
+    assert by["favourite-desk"].agents[0].spec["side"] == "yes"
+    assert by["elo-desk-fixed"].view.name == "elo"
 
 
 def test_every_shipped_pm_starts_with_the_same_bankroll():
@@ -148,3 +162,49 @@ def test_every_shipped_pm_starts_with_the_same_bankroll():
     rather than quietly winning."""
     rolls = {m.name: m.bankroll for m in pm_mod.load_all()}
     assert set(rolls.values()) == {FIRM_STAKE}, rolls
+
+
+# ── the manager slot and what a manager may hand back ─────────────────────────
+
+def test_manager_slot_defaults_to_none_and_validates():
+    m = pm_mod.build(cfg())
+    assert m.manager_spec == {"type": "none"}
+    assert m.version == 1
+    m2 = pm_mod.build(cfg(manager={"type": "llm", "provider": "openrouter",
+                                   "model": "qwen/qwen3"}, version=4))
+    assert m2.manager_spec["provider"] == "openrouter" and m2.version == 4
+    with pytest.raises(pm_mod.PMError, match="manager"):
+        pm_mod.validate(cfg(manager={"type": "wizard"}))
+    with pytest.raises(pm_mod.PMError, match="manager"):
+        pm_mod.validate(cfg(manager={"type": "llm", "provider": "nope", "model": "x"}))
+
+
+def test_an_agent_spec_may_be_inline():
+    """A manager writes a changed agent back as a dict, not a file. It is
+    validated exactly like a file would be."""
+    inline = json.load(open(SPEC_PATH))
+    m = pm_mod.build(cfg(agents=[{"name": "a1", "spec": inline}]))
+    assert m.agents[0].spec["name"] == inline["name"]
+    bad = dict(inline, side="maybe")
+    with pytest.raises(pm_mod.PMError, match="side"):
+        pm_mod.build(cfg(agents=[{"name": "a1", "spec": bad}]))
+
+
+def test_build_keeps_the_config_it_was_built_from():
+    c = cfg()
+    m = pm_mod.build(c)
+    assert m.cfg == c and m.cfg is not c
+
+
+def test_inline_agents_are_accepted_in_the_obvious_shapes():
+    """A manager writing JSON by hand will put the name on the agent, or
+    write the spec as the agent itself. Both mean the same desk; neither is
+    a reason to refuse it."""
+    inline = json.load(open(SPEC_PATH))
+    body = {k: v for k, v in inline.items() if k != "name"}
+    # name on the agent, not inside the spec
+    m = pm_mod.build(cfg(agents=[{"name": "a1", "spec": body}]))
+    assert m.agents[0].name == "a1" and m.agents[0].spec["name"] == "a1"
+    # the spec IS the agent
+    m = pm_mod.build(cfg(agents=[dict(inline, name="a2")]))
+    assert m.agents[0].name == "a2" and m.agents[0].spec["side"] == inline["side"]

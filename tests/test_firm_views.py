@@ -138,3 +138,65 @@ def test_structural_view_declares_its_lookahead():
     assert views.StructuralView().lookahead is True
     assert getattr(views.MarketView(), "lookahead", False) is False
     assert getattr(views.EloView(), "lookahead", False) is False
+
+
+# ── views across ticks: the walk-forward runner's contract ────────────────────
+
+def _season():
+    """Ten matches settling one after another, plus a price series long enough
+    for the trailing views to have a window. Pricing this in pieces must equal
+    pricing it at once, or a desk that wakes up every tick holds a different
+    opinion from the one that was backtested."""
+    bars = []
+    teams = ["Arsenal", "Chelsea", "Spurs", "Leeds"]
+    for i in range(10):
+        h, a = teams[i % 4], teams[(i + 1) % 4]
+        t0 = i * 1000
+        for k in range(6):
+            bars.append(bar(ticker=f"g{i}", ts=t0 + k * 100, bid=35 + k * 3,
+                            ask=39 + k * 3, home=h, away=a, sub=h, event=f"E{i}",
+                            result="yes" if i % 3 else "no", close_time=t0 + 600))
+        bars.append(bar(ticker=f"g{i}", ts=t0 + 600, bid=98, ask=100, home=h,
+                        away=a, sub=h, event=f"E{i}",
+                        result="yes" if i % 3 else "no", close_time=t0 + 600))
+    return bars
+
+
+@pytest.mark.parametrize("build", [
+    lambda: views.EloView(k=50.0),
+    lambda: views.MomentumView(lookback=4),
+    lambda: views.MeanReversionView(lookback=4),
+    lambda: views.MarketView(),
+])
+def test_pricing_in_chunks_matches_one_pass(build):
+    bars = _season()
+    whole = build().price(bars)
+    v = build()
+    pieces = {}
+    for cut in range(0, len(bars), 9):
+        pieces.update(v.price(bars[cut:cut + 9]))
+    assert pieces == whole
+
+
+def test_reconfigure_keeps_what_the_view_has_learned():
+    """A manager changing Elo's k must not wipe the ratings the desk earned;
+    a real manager who changes their method does not forget the season."""
+    bars = _season()
+    v = views.EloView(k=50.0)
+    v.price(bars[:40])
+    learned = dict(v.rating)
+    assert learned, "the season must have taught it something"
+    v.reconfigure({"k": 10.0, "home_bonus": 0.0})
+    assert v.k == 10.0 and v.home_bonus == 0.0
+    assert dict(v.rating) == learned
+
+    m = views.MomentumView(lookback=4)
+    m.price(bars[:40])
+    m.reconfigure({"lookback": 2, "strength": 0.9})
+    assert m.lookback == 2 and m.strength == 0.9
+    assert all(len(h) <= 2 for h in m.hist.values())
+
+
+def test_reconfigure_rejects_an_unknown_parameter():
+    with pytest.raises(TypeError):
+        views.EloView().reconfigure({"kk": 1.0})
