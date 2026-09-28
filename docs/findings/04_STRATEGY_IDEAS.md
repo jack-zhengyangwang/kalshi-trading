@@ -59,3 +59,5 @@ agent and have **not been independently checked**, so read the source before rel
 - Executable arbitrage 2026 — https://arxiv.org/pdf/2608.00666
 - Kalshi LIP — https://help.kalshi.com/en/articles/13823851-liquidity-incentive-program
 - SportsBookISH 2026 — https://sportsbookish.com/research/why-mid-game-kalshi-lines-lag
+
+**Next:** the pre-registered test plan for the first batch is in [05_PREREG_BATCH1.md](05_PREREG_BATCH1.md).
