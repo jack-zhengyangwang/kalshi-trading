@@ -34,3 +34,7 @@ venv/
 v3_archive/models/*.csv
 data/backtests/
 data/market_history.db
+
+# ── regenerable data (rebuild: wc.firm.ingest + wc.firm.sources.derived; walks: scripts/run_walk.sh) ──
+data/soccer.db
+data/walks/

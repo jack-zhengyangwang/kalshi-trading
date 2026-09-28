@@ -109,6 +109,7 @@ view only; none can read the future.
 | `volatility` | float | Trailing window |
 | `model_prob` | 0–1 | Our own `p_fair` from the brains, when available. **Side-relative, like `price`:** a `"side": "yes"` agent sees P(yes), a `"side": "no"` agent sees P(no) = 1 − P(yes) |
 | `edge` | float | `model_prob - price`, so always "our probability minus what we pay" on either side. Bridges the DSL to the existing v4 brains |
+| `leg` | `home` / `away` / `draw` / `other` | Which leg of the fixture this market is, from the stored `home`/`away`/`sub_title`. `None` when no fixture is stored. Filter on it with `universe.leg` |
 | `unrealized_pnl_pct` | float | Position-level, exits only |
 | `hold_to_settlement` | bool | Terminal exit |
 

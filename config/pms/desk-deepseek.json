@@ -1,0 +1,25 @@
+{
+  "name": "desk-deepseek",
+  "description": "A blank desk run by deepseek/deepseek-v4-flash through OpenRouter. The seed below is baseline-market's placeholder and trades nothing; the manager designs the desk at founding and answers for every change after that.",
+  "founding": true,
+  "view": {
+    "view": "market"
+  },
+  "bankroll": 500.0,
+  "allocation": "equal",
+  "agents": [
+    {
+      "name": "edge-taker",
+      "spec": "strategies/agents/edge-taker.json"
+    }
+  ],
+  "caps": {
+    "daily_spend_dollars": 60.0,
+    "total_exposure_dollars": 300.0
+  },
+  "manager": {
+    "type": "llm",
+    "provider": "openrouter",
+    "model": "deepseek/deepseek-v4-flash"
+  }
+}

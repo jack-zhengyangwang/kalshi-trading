@@ -332,6 +332,12 @@ def candle_count(con):
     return con.execute("SELECT COUNT(*) n FROM candles").fetchone()["n"]
 
 
-def date_range(con):
-    row = con.execute("SELECT MIN(ts) lo, MAX(ts) hi FROM candles").fetchone()
+def date_range(con, source="collector", interval_min=None):
+    """(first ts, last ts) of ONE source table. A walk over the archive must
+    not be shortened by the collector table starting weeks later."""
+    table = SOURCES[source]
+    q, args = f"SELECT MIN(ts) lo, MAX(ts) hi FROM {table}", []
+    if interval_min is not None and source == "backfill":
+        q += " WHERE interval_min = ?"; args.append(int(interval_min))
+    row = con.execute(q, args).fetchone()
     return (row["lo"], row["hi"])

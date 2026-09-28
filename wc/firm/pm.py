@@ -39,6 +39,13 @@ PM_DIR = os.path.join(paths.CONFIG_DIR, "pms")
 ALLOCATIONS = {"equal", "weighted"}
 
 
+MANAGER_TYPES = {"none", "llm"}
+# LLM backends a manager may run on. "anthropic" uses the SDK; the others are
+# OpenAI-compatible HTTP endpoints. Which model runs a desk is part of the
+# desk's definition, so two desks can differ in nothing but their manager.
+PROVIDERS = {"anthropic", "openrouter", "groq"}
+
+
 class PMError(ValueError):
     """A portfolio manager definition is malformed. Raised at load time."""
 
@@ -60,7 +67,8 @@ class PortfolioManager:
     """A view, a bankroll, and the agents that trade it."""
 
     def __init__(self, name, view, agents, bankroll=1000.0, allocation="equal",
-                 caps=None, description="", learns=True):
+                 caps=None, description="", learns=True, manager=None,
+                 version=1, cfg=None):
         self.name = name
         self.view = view
         self.agents = agents
@@ -71,6 +79,15 @@ class PortfolioManager:
         # Whether this PM keeps a journal and sizes on its own record. On by
         # default: a desk that never learns from being wrong is not a desk.
         self.learns = bool(learns)
+        # Who runs this desk between ticks. {"type": "none"} is a fixed desk —
+        # every benchmark is one. See wc/firm/manager.py.
+        self.manager_spec = dict(manager or {"type": "none"})
+        # Bumped every time the manager changes the desk; the decision log
+        # says why. Versions live in this number and in git, never in filenames.
+        self.version = int(version)
+        # The definition this desk was built from, so a manager can hand back
+        # a changed one and the runner can diff the two.
+        self.cfg = json.loads(json.dumps(cfg)) if cfg is not None else None
         self.allocate()
 
     # ── capital ──────────────────────────────────────────────────────────────
@@ -112,6 +129,21 @@ class PortfolioManager:
 
 # ── loading ───────────────────────────────────────────────────────────────────
 
+def _normalize_agent(a):
+    """Accept the shapes a manager writes by hand, in place: a spec written
+    as the agent itself becomes {"name", "spec"}, and an inline spec without
+    a name takes the agent's."""
+    if "spec" not in a and "side" in a and "entry" in a:
+        name, weight = a.get("name"), a.get("weight")
+        body = {k: v for k, v in a.items() if k != "weight"}
+        a.clear()
+        a["name"], a["spec"] = name, body
+        if weight is not None:
+            a["weight"] = weight
+    if isinstance(a.get("spec"), dict) and a.get("name") and not a["spec"].get("name"):
+        a["spec"]["name"] = a["name"]
+
+
 def validate(cfg, base_dir=None):
     """Validate a PM definition. Raises PMError with a useful message."""
     if not isinstance(cfg, dict):
@@ -139,13 +171,38 @@ def validate(cfg, base_dir=None):
         raise PMError("'agents' must be a non-empty list — a PM with no agents "
                       "cannot trade")
 
+    mgr = cfg.get("manager", {"type": "none"})
+    if not isinstance(mgr, dict) or mgr.get("type") not in MANAGER_TYPES:
+        raise PMError(f"'manager' must be an object with type in "
+                      f"{sorted(MANAGER_TYPES)}, got {mgr!r}")
+    if mgr.get("type") == "llm":
+        if mgr.get("provider", "anthropic") not in PROVIDERS:
+            raise PMError(f"manager.provider must be one of {sorted(PROVIDERS)}, "
+                          f"got {mgr.get('provider')!r}")
+        if not str(mgr.get("model") or "").strip():
+            raise PMError("manager.model must name a model")
+
+    if "founding" in cfg and not isinstance(cfg["founding"], bool):
+        raise PMError("'founding' must be true or false")
+
+    ver = cfg.get("version", 1)
+    if not isinstance(ver, int) or isinstance(ver, bool) or ver < 1:
+        raise PMError(f"'version' must be a positive integer, got {ver!r}")
+
     seen = set()
     for i, a in enumerate(agents):
         if not isinstance(a, dict):
             raise PMError(f"agents[{i}]: must be an object")
+        _normalize_agent(a)
         if "spec" not in a:
-            raise PMError(f"agents[{i}]: missing 'spec' (a path to a strategy JSON)")
-        nm = a.get("name") or os.path.splitext(os.path.basename(a["spec"]))[0]
+            raise PMError(f"agents[{i}]: missing 'spec' (a path to a strategy "
+                          f"JSON, or the spec itself)")
+        if isinstance(a["spec"], dict):
+            if not a.get("name"):
+                raise PMError(f"agents[{i}]: an inline spec needs a 'name'")
+            nm = a["name"]
+        else:
+            nm = a.get("name") or os.path.splitext(os.path.basename(a["spec"]))[0]
         if nm in seen:
             raise PMError(f"agents[{i}]: duplicate agent name {nm!r} — per-agent "
                           f"P&L would be indistinguishable")
@@ -166,34 +223,48 @@ def load(path):
         except json.JSONDecodeError as e:
             raise PMError(f"{path}: invalid JSON — {e}") from e
 
+    return build(cfg, where=path)
+
+
+def build(cfg, where="<config>"):
+    """A validated definition -> a PortfolioManager. `where` names the source
+    in errors: a file path, or "manager decision" when a manager wrote it."""
     try:
         validate(cfg)
     except PMError as e:
-        raise PMError(f"{path}: {e}") from e
+        raise PMError(f"{where}: {e}") from e
 
     try:
         view = views.build(cfg["view"])
-    except ValueError as e:
-        raise PMError(f"{path}: {e}") from e
+    except (ValueError, TypeError) as e:
+        raise PMError(f"{where}: {e}") from e
 
     root = paths.ROOT
     agents = []
     for a in cfg["agents"]:
-        spec_path = a["spec"]
-        if not os.path.isabs(spec_path):
-            spec_path = os.path.join(root, spec_path)
-        try:
-            spec = spec_mod.load(spec_path)
-        except spec_mod.SpecError as e:
-            raise PMError(f"{path}: agent {a.get('name') or spec_path}: {e}") from e
-        name = a.get("name") or os.path.splitext(os.path.basename(spec_path))[0]
+        if isinstance(a["spec"], dict):
+            try:
+                spec = spec_mod.validate(json.loads(json.dumps(a["spec"])))
+            except spec_mod.SpecError as e:
+                raise PMError(f"{where}: agent {a['name']}: {e}") from e
+            name = a["name"]
+        else:
+            spec_path = a["spec"]
+            if not os.path.isabs(spec_path):
+                spec_path = os.path.join(root, spec_path)
+            try:
+                spec = spec_mod.load(spec_path)
+            except spec_mod.SpecError as e:
+                raise PMError(f"{where}: agent {a.get('name') or spec_path}: {e}") from e
+            name = a.get("name") or os.path.splitext(os.path.basename(spec_path))[0]
         agents.append(Agent(name, spec, a.get("weight", 1.0)))
 
     return PortfolioManager(
         name=cfg["name"], view=view, agents=agents,
         bankroll=cfg["bankroll"], allocation=cfg.get("allocation", "equal"),
         caps=cfg.get("caps"), description=cfg.get("description", ""),
-        learns=cfg.get("learns", True))
+        learns=cfg.get("learns", True), manager=cfg.get("manager"),
+        version=cfg.get("version", 1), cfg=cfg)
 
 
 def load_all(pattern=None):

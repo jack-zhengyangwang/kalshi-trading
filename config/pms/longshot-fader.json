@@ -1,0 +1,22 @@
+{
+  "name": "longshot-fader",
+  "description": "Benchmark desk: fades every longshot \u2014 NO on any leg whose YES trades under 12c. The favourite-longshot bias as a fixed rule. A managed desk that cannot beat this has less edge than the oldest finding in sports betting.",
+  "view": {
+    "view": "market"
+  },
+  "bankroll": 500.0,
+  "allocation": "equal",
+  "agents": [
+    {
+      "name": "longshot-fader",
+      "spec": "strategies/agents/longshot-fader.json"
+    }
+  ],
+  "caps": {
+    "daily_spend_dollars": 60.0,
+    "total_exposure_dollars": 300.0
+  },
+  "manager": {
+    "type": "none"
+  }
+}

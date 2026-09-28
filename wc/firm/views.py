@@ -58,6 +58,15 @@ def _mid(bar):
 
 
 class View:
+    """One opinion. `price(bars)` may be called once with everything, or many
+    times with consecutive pieces — the answers must agree (tested). A view
+    that learns keeps what it has learned on the instance, so a desk that
+    wakes up every tick holds the same opinion as the one that was backtested
+    in a single pass.
+
+    `reconfigure(params)` is how a manager changes the method without the
+    desk forgetting the season: parameters move, learned state stays.
+    """
     name = "base"
 
     def price(self, bars):
@@ -65,6 +74,40 @@ class View:
 
     def describe(self):
         return self.name
+
+    def reconfigure(self, params):
+        """Apply new constructor parameters in place. Unknown names are a
+        TypeError, exactly as they would be on construction."""
+        import inspect
+        allowed = set(inspect.signature(type(self).__init__).parameters) - {"self"}
+        bad = set(params) - allowed
+        if bad:
+            raise TypeError(f"{type(self).__name__} has no parameter {sorted(bad)}; "
+                            f"known: {sorted(allowed)}")
+        self._set_params(params)
+
+    def _set_params(self, params):
+        for k, v in params.items():
+            setattr(self, k, v)
+
+    def forget(self, keep):
+        """Drop per-ticker trailing state for every ticker not in `keep`.
+
+        A view that keeps a price list per ticker forever grows with every
+        market the walk has ever seen. What it has learned about TEAMS is
+        not per-ticker and is never dropped — that is the desk's memory."""
+        hist = getattr(self, "hist", None)
+        if hist is None:
+            return
+        for ticker in list(hist):
+            if ticker not in keep:
+                del hist[ticker]
+
+    def params(self):
+        import inspect
+        names = [n for n in inspect.signature(type(self).__init__).parameters
+                 if n != "self"]
+        return {n: getattr(self, n) for n in names if hasattr(self, n)}
 
 
 # ── the benchmark ─────────────────────────────────────────────────────────────
@@ -104,9 +147,16 @@ class MomentumView(View):
     def __init__(self, lookback=12, strength=0.5, floor=0.02, cap=0.98):
         self.lookback, self.strength = int(lookback), float(strength)
         self.floor, self.cap = float(floor), float(cap)
+        self.hist = defaultdict(list)             # ticker -> trailing mids
+
+    def _set_params(self, params):
+        super()._set_params(params)
+        self.lookback = int(self.lookback)
+        for h in self.hist.values():
+            del h[:-self.lookback]
 
     def price(self, bars):
-        hist, out = defaultdict(list), {}
+        hist, out = self.hist, {}
         for b in bars:
             m = _mid(b)
             if m is None:
@@ -135,9 +185,16 @@ class MeanReversionView(View):
     def __init__(self, lookback=24, strength=0.5, floor=0.02, cap=0.98):
         self.lookback, self.strength = int(lookback), float(strength)
         self.floor, self.cap = float(floor), float(cap)
+        self.hist = defaultdict(list)             # ticker -> trailing mids
+
+    def _set_params(self, params):
+        super()._set_params(params)
+        self.lookback = int(self.lookback)
+        for h in self.hist.values():
+            del h[:-self.lookback]
 
     def price(self, bars):
-        hist, out = defaultdict(list), {}
+        hist, out = self.hist, {}
         for b in bars:
             m = _mid(b)
             if m is None:
@@ -174,13 +231,17 @@ class EloView(View):
         self.k, self.base = float(k), float(base)
         self.home_bonus, self.scale = float(home_bonus), float(scale)
         self.draw_share = float(draw_share)
+        self.rating = defaultdict(self._base_rating)   # team -> rating, learned
+        self.settled_seen = set()
+
+    def _base_rating(self):
+        return self.base
 
     def _expected(self, rh, ra):
         return 1.0 / (1.0 + 10 ** (-((rh + self.home_bonus) - ra) / self.scale))
 
     def price(self, bars):
-        rating = defaultdict(lambda: self.base)
-        settled_seen = set()
+        rating, settled_seen = self.rating, self.settled_seen
         out = {}
 
         for b in bars:
