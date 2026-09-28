@@ -38,3 +38,5 @@ data/market_history.db
 # ── regenerable data (rebuild: wc.firm.ingest + wc.firm.sources.derived; walks: scripts/run_walk.sh) ──
 data/soccer.db
 data/walks/
+data/espn_cache/
+data/kalshi_cache/
