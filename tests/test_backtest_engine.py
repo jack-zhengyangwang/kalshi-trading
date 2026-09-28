@@ -418,3 +418,172 @@ def test_settlement_value_is_unreadable_before_close():
     row["settlement_value"] = 0.5
     v = engine.BarView(row)
     assert v.settlement_value is None, "settlement value is as revealing as result"
+
+
+# ── resumable sessions: the walk-forward runner's contract ────────────────────
+
+def _scenario():
+    """Three markets, staggered so positions are OPEN across the split point."""
+    bars = []
+    for i, t in enumerate(("M1", "M2", "M3")):
+        for k in range(6):
+            bars.append(bar(ticker=t, ts=k * 3600 + i * 600, bid=29 + k, ask=31 + k,
+                            close=30 + k, close_time=6 * 3600 + i * 600,
+                            result="yes" if i != 1 else "no"))
+        bars.append(bar(ticker=t, ts=6 * 3600 + i * 600, bid=99, ask=100, close=99,
+                        close_time=6 * 3600 + i * 600,
+                        result="yes" if i != 1 else "no"))
+    bars.sort(key=lambda r: (r["ts"], r["ticker"]))
+    return bars
+
+
+def _spec():
+    return spec(entry={"all": [{"signal": "price", "op": "lt", "value": 0.40}]},
+                sizing={"method": "fixed", "dollars": 30.0, "max_bet_dollars": 30.0})
+
+
+def test_session_in_chunks_matches_one_pass():
+    """Feeding the same bars in pieces must produce the same trades as one
+    pass. Otherwise a forward runner that wakes up every tick is a different
+    backtest from the one that promoted the desk."""
+    bars = _scenario()
+    one = engine.Book("a", _spec(), 500.0)
+    trades_one, rej_one = engine.run_book([one], bars, costs=NO_COST)
+
+    two = engine.Book("a", _spec(), 500.0)
+    s = engine.Session([two], costs=NO_COST)
+    cut = len(bars) // 2
+    s.run(bars[:cut])
+    assert two.positions, "the split point must land with positions open"
+    s.run(bars[cut:])
+    trades_two, rej_two = s.finalize()
+
+    assert trades_two == trades_one
+    assert rej_two == rej_one
+
+
+def test_session_reports_trades_closed_since_last_look():
+    """The manager reads what happened THIS tick. The session hands over only
+    the trades closed since it was last asked, and never the same one twice."""
+    bars = _scenario()
+    s = engine.Session([engine.Book("a", _spec(), 500.0)], costs=NO_COST)
+    cut = len(bars) // 2
+    s.run(bars[:cut])
+    first = s.new_trades()
+    s.run(bars[cut:])
+    second = s.new_trades()
+    s.finalize()
+    third = s.new_trades()
+    assert first == []                      # nothing settled before the cut
+    assert len(second) == 3                 # the settlement bars are in the second half
+    assert third == [] and s.new_trades() == []
+
+
+def test_session_books_can_change_between_runs():
+    """A manager may re-spec an agent or swap the roster mid-walk. Positions of
+    an agent that stays must carry; a new agent starts flat with its capital."""
+    bars = _scenario()
+    a = engine.Book("a", _spec(), 500.0)
+    s = engine.Session([a], costs=NO_COST)
+    cut = len(bars) // 2
+    s.run(bars[:cut])
+    held = dict(a.positions)
+    a.spec = dict(_spec(), entry={"all": [{"signal": "price", "op": "lt", "value": 0.0}]})
+    b = engine.Book("b", _spec(), 100.0)
+    s.books = [a, b]
+    s.run(bars[cut:])
+    trades, _ = s.finalize()
+    assert {t["agent"] for t in trades} >= {"a"}
+    assert all(t["ticker"] in held for t in trades if t["agent"] == "a")
+
+
+def test_a_resolved_market_frees_its_slot_before_the_data_ends():
+    """The archive's last bar for a market sits just inside close_time. Once
+    the stream has moved past that close, the position is settled and its
+    slot in max_concurrent_positions is free — it does not sit dead in the
+    book until finalize, blocking every later entry."""
+    # M1: bars up to (but not at) its close at day 1; result recorded.
+    m1 = [bar(ticker="M1", ts=h * 3600, close_time=DAY, result="yes") for h in (0, 1, 2)]
+    # M2: opens on day 2, well after M1 closed.
+    m2 = [bar(ticker="M2", ts=2 * DAY + h * 3600, close_time=3 * DAY, result="yes")
+          for h in (0, 1, 2)]
+    m2.append(bar(ticker="M2", ts=3 * DAY, close_time=3 * DAY, result="yes", bid=99, ask=100))
+    s = spec(sizing={"method": "fixed", "dollars": 30.0, "max_bet_dollars": 30.0,
+                     "max_concurrent_positions": 1})
+    trades, rej = engine.run(s, m1 + m2, starting_bankroll=1000.0, costs=NO_COST)
+    tickers = [t["ticker"] for t in trades]
+    assert tickers == ["M1", "M2"], (tickers, rej)      # M2 was NOT blocked by a dead M1
+    assert trades[0]["settled"] and trades[0]["exit_ts"] == DAY
+    assert rej.get("max_concurrent_positions", 0) == 0
+
+
+DAY = 86400
+
+
+def test_finished_markets_are_dropped_from_memory_but_not_from_the_result():
+    """Per-ticker state (last bar, price history, volume window) is kept so
+    trailing signals can be computed. It must be dropped once a market can
+    never produce another bar, or a long walk grows with every market ever
+    seen rather than with the markets currently open — which is what killed
+    the 45-tick run. Dropping it changes nothing about the trades."""
+    bars = []
+    for m in range(6):                       # six markets, each closing a day apart
+        t0 = m * DAY
+        for h in range(4):
+            bars.append(bar(ticker=f"M{m}", ts=t0 + h * 3600, close_time=t0 + DAY,
+                            result="yes"))
+    bars.sort(key=lambda r: r["ts"])
+    s = spec(sizing={"method": "fixed", "dollars": 20.0, "max_bet_dollars": 20.0,
+                     "max_concurrent_positions": 10})
+
+    kept = engine.Session([engine.Book("a", s, 1000.0)], costs=NO_COST)
+    kept.prune = False                        # opt out, for the comparison
+    kept.run(bars)
+    kept_trades, _ = kept.finalize()
+
+    sess = engine.Session([engine.Book("a", s, 1000.0)], costs=NO_COST)
+    sess.run(bars)
+    live = sess.tracked()
+    trades, _ = sess.finalize()
+
+    assert trades == kept_trades                      # same result
+    assert live <= 2, live                            # only open markets tracked
+    assert len(kept.tracked_tickers()) == 6           # …vs every market ever seen
+
+
+def test_an_entry_that_can_never_fill_releases_its_capital():
+    """An entry reserves its stake until the fill bar arrives. If that bar
+    never comes — the market closed, or the walk moved past it — the
+    reservation must be released, or the desk's daily cap is consumed by
+    orders that will never exist. Left unfixed this is a trap that tightens
+    the harder a manager tries: looser entries strand more capital, which
+    blocks more entries. Two desks went a whole run without a single fill."""
+    def solo(i):
+        return bar(ticker=f"M{i}", ts=i * 60, close_time=i * 60 + 1800)
+
+    s = dict(spec(), caps={"daily_spend_dollars": 100.0, "per_market_dollars": 50.0,
+                           "total_exposure_dollars": 1e6},
+             entry={"all": [{"signal": "price", "op": "lt", "value": 0.9}]},
+             sizing={"method": "fixed", "dollars": 30.0, "max_bet_dollars": 30.0})
+    book = engine.Book("a", s, 500.0)
+    sess = engine.Session([book], costs=engine.Costs(),
+                          pm_caps={"daily_spend_dollars": 100.0})
+    # ten markets, one bar each, every one closing half an hour later; the
+    # stream then moves into the next day
+    sess.run([solo(i) for i in range(10)] + [bar(ticker="LATER", ts=2 * DAY)])
+    # every market that closed without printing again has released its stake;
+    # the only reservation left is the one just decided on a live market
+    assert set(book.pending_entry) == {"LATER"}
+    assert book.committed == 30.0, book.committed
+    # three intents is all the $100 daily cap allowed at $30 each — and
+    # before the fix those three held it shut for the rest of the run
+    assert sess.rejections.get("entry_expired_before_fill", 0) == 3
+
+    # and the cap is usable again: a market that DOES produce a fill bar trades
+    more = [bar(ticker="OK", ts=2 * DAY + 60), bar(ticker="OK", ts=2 * DAY + 120),
+            bar(ticker="OK", ts=3 * DAY, close_time=3 * DAY, result="yes",
+                bid=99, ask=100)]
+    sess.run(more)
+    sess.finalize()
+    assert [t["ticker"] for t in sess.trades] == ["OK"]
+    assert book.committed == 0.0            # the stale LATER intent went too

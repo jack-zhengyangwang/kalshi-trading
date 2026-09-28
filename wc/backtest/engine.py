@@ -317,7 +317,18 @@ def run(spec, bars, starting_bankroll=1000.0, costs=None,
 
 def run_book(books, bars, costs=None, model_probs=None, history_window=20,
              pm_caps=None):
-    """Replay a portfolio manager's whole book over `bars`.
+    """Replay a portfolio manager's whole book over `bars`, start to finish.
+
+    One pass of a Session followed by finalisation. See Session for the
+    contract; this is the shape the single-pass backtest wants.
+    """
+    s = Session(books, costs=costs, history_window=history_window, pm_caps=pm_caps)
+    s.run(bars, model_probs=model_probs)
+    return s.finalize()
+
+
+class Session:
+    """A portfolio manager's book, replayed bar by bar and RESUMABLE.
 
     `books` are the PM's agents, each with its own capital. `model_probs` is the
     PM's VIEW — one opinion, shared by its own agents and by nobody else's, which
@@ -332,38 +343,169 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
     bind, because the engine would never see two agents holding at once — the
     same reasoning that makes the market interleave load-bearing.
 
-    Returns (trades, rejections). Every trade carries `agent`.
+    WHY A SESSION. A single-pass backtest and a forward runner that wakes up
+    every tick must be the SAME backtest, or the number that promoted a desk
+    is not the number it is then judged on. So the replay state — open
+    positions, pending fills, trailing windows, daily spend — lives here and
+    survives between `run()` calls. Feeding the bars in pieces gives exactly
+    the trades that feeding them at once gives (tested). `books` may be
+    changed between runs: that is how a manager re-specs an agent or changes
+    the roster mid-walk without the desk forgetting what it holds.
+
+    `finalize()` is the end of DATA, not the end of a tick: it settles or
+    marks every still-open position, and is called once.
     """
-    costs = costs or Costs()
-    delay = costs.fill_delay_bars
-    pm_caps = pm_caps or {}
 
-    trades = []
-    rejections = defaultdict(int)
-    history = defaultdict(list)
-    vol_24h = defaultdict(deque)
-    last_view = {}
-    pm_spend_by_day = defaultdict(float)
+    def __init__(self, books, costs=None, history_window=20, pm_caps=None):
+        self.books = list(books)
+        self.costs = costs or Costs()
+        self.history_window = history_window
+        self.pm_caps = pm_caps or {}
+        self.trades = []
+        self.rejections = defaultdict(int)
+        self._history = defaultdict(list)
+        self._vol_24h = defaultdict(deque)
+        self._last_view = {}
+        self._pm_spend_by_day = defaultdict(float)
+        self._reported = 0
+        self._finalized = False
+        self.entries = []                 # every fill, in order: what was BOUGHT
+        self._entries_reported = 0
+        self._day = None                  # settle due positions when the day turns
+        # Per-ticker state is kept so trailing signals can be computed, and
+        # dropped once a market can never produce another bar. Without this,
+        # memory grows with every market the walk has EVER seen instead of
+        # with the markets currently open — which is what killed a 45-tick
+        # run. Set False only to compare against the unpruned path.
+        self.prune = True
 
-    def pm_exposure():
-        return sum(b.exposure() for b in books)
+    # ── what the manager reads ───────────────────────────────────────────
 
-    def pm_committed():
-        """Capital the desk has decided to spend but not yet filled. Without
-        this, three agents can each pass the PM's daily cap on the same bar and
-        then all fill — the identical flaw the per-agent caps already guard."""
-        return sum(b.committed for b in books)
+    def new_trades(self):
+        """Trades closed since the last call. Each is handed over once."""
+        out = self.trades[self._reported:]
+        self._reported = len(self.trades)
+        return out
 
-    for row in bars:
+    def new_entries(self):
+        """Positions opened since the last call. A tick that opened twenty
+        positions and closed none is not a quiet tick, and the brief must
+        not say so."""
+        out = self.entries[self._entries_reported:]
+        self._entries_reported = len(self.entries)
+        return out
+
+    def tracked_tickers(self):
+        """Markets whose trailing state this session still holds."""
+        return set(self._last_view) | set(self._history) | set(self._vol_24h)
+
+    def tracked(self):
+        return len(self.tracked_tickers())
+
+    def expire_intents(self, now_ts):
+        """Release entry intents that can never fill, and the capital they
+        hold.
+
+        An entry reserves its stake (`book.committed`) until the fill bar
+        arrives; that bar may never come, because the market closed or the
+        walk moved past it. Nothing released the reservation, so the desk's
+        daily cap filled up with orders that would never exist — and the
+        looser a manager made its entry rules, the more capital it stranded
+        and the fewer trades it could place. Exits are not reserved capital,
+        but a pending exit on a market that can no longer print is equally
+        dead, so it goes too.
+        """
+        limit = self.costs.max_fill_age_seconds
+        n = 0
+        for book in self.books:
+            for ticker, intent in list(book.pending_entry.items()):
+                last = self._last_view.get(ticker)
+                closed = (last is not None and last.close_time is not None
+                          and last.close_time <= now_ts)
+                stale = limit is not None and (now_ts - intent["decided_ts"]) > limit
+                if not (closed or stale):
+                    continue
+                del book.pending_entry[ticker]
+                book.committed -= intent["stake"]
+                self.rejections["entry_expired_before_fill"] += 1
+                n += 1
+            for ticker in list(book.pending_exit):
+                last = self._last_view.get(ticker)
+                if last is not None and last.close_time is not None \
+                        and last.close_time <= now_ts and ticker not in book.positions:
+                    del book.pending_exit[ticker]
+        return n
+
+    def _forget(self, now_ts):
+        """Drop every trace of markets that closed before `now_ts` and that no
+        book still holds. A closed market cannot be traded and has no trailing
+        signal left to compute, so nothing downstream can tell the difference
+        — the test asserts identical trades."""
+        held = {t for b in self.books for t in b.positions}
+        held |= {t for b in self.books for t in b.pending_entry}
+        held |= {t for b in self.books for t in b.pending_exit}
+        for ticker, view in list(self._last_view.items()):
+            if ticker in held or view.close_time is None or view.close_time > now_ts:
+                continue
+            del self._last_view[ticker]
+            self._history.pop(ticker, None)
+            self._vol_24h.pop(ticker, None)
+        # the PM's view keeps its own per-ticker trail; it goes too
+        forget = getattr(self, "view_forget", None)
+        if forget is not None:
+            forget(set(self._last_view))
+
+    def _record_entry(self, book, filled, ts):
+        self.entries.append({"agent": book.name, "ticker": filled.ticker,
+                             "series": filled.series, "side": filled.side,
+                             "contracts": filled.contracts, "price": filled.entry_price,
+                             "cost": round(filled.cost, 4), "ts": ts})
+
+    # ── the walk ─────────────────────────────────────────────────────────
+
+    def run(self, bars, model_probs=None):
+        model_probs = model_probs or {}
+        for row in bars:
+            self.step(row, model_probs.get((row["ticker"], row["ts"])))
+
+    def step(self, row, mp=None):
+        """One bar, every agent. `mp` is the PM's probability for this bar."""
+        books, costs = self.books, self.costs
+        delay = costs.fill_delay_bars
+        pm_caps, trades, rejections = self.pm_caps, self.trades, self.rejections
+        history, vol_24h = self._history, self._vol_24h
+        pm_spend_by_day = self._pm_spend_by_day
+
+        def pm_exposure():
+            return sum(b.exposure() for b in books)
+
+        def pm_committed():
+            """Capital the desk has decided to spend but not yet filled. Without
+            this, three agents can each pass the PM's daily cap on the same bar and
+            then all fill — the identical flaw the per-agent caps already guard."""
+            return sum(b.committed for b in books)
+
+        # A market whose close has passed is settled BEFORE this bar is
+        # traded, so a resolved match never sits dead in the book blocking
+        # max_concurrent_positions and the exposure caps. Checked when the
+        # day turns, not every bar: cheap, and a match resolves once.
+        today = int(row["ts"] // DAY)
+        if self._day is not None and today != self._day:
+            self.settle_due(row["ts"] - 1)
+            self.expire_intents(row["ts"] - 1)
+            if self.prune:
+                self._forget(row["ts"] - 1)
+        self._day = today
+
         view = BarView(row, history=list(history[row["ticker"]]))
         mid = view.mid()
         if mid is None:
             rejections["no_price"] += 1
-            continue
+            return
 
         history[view.ticker].append(
             {"price": mid, "open_interest": view.open_interest})
-        if len(history[view.ticker]) > history_window:
+        if len(history[view.ticker]) > self.history_window:
             history[view.ticker].pop(0)
 
         window = vol_24h[view.ticker]
@@ -373,8 +515,7 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
             window.popleft()
         vol_day = sum(v for _, v in window)
 
-        last_view[view.ticker] = view
-        mp = (model_probs or {}).get((view.ticker, view.ts))
+        self._last_view[view.ticker] = view
         day = int(view.ts // 86400)
 
         for book in books:
@@ -439,6 +580,7 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
                     book.spend_by_day[day] += filled.cost
                     pm_spend_by_day[day] += filled.cost
                     book.positions[view.ticker] = filled
+                    self._record_entry(book, filled, view.ts)
                 continue
 
             if pos:
@@ -503,44 +645,115 @@ def run_book(books, bars, costs=None, model_probs=None, history_window=20,
                     book.spend_by_day[day] += filled.cost
                     pm_spend_by_day[day] += filled.cost
                     book.positions[view.ticker] = filled
+                    self._record_entry(book, filled, view.ts)
             else:
                 book.pending_entry[view.ticker] = intent
                 book.committed += stake
 
-    # Positions still open when the data ends must not vanish — that would
-    # silently drop their P&L and flatter the result.
-    #
-    # A market whose close_time has passed and whose outcome we recorded is
-    # SETTLED, not liquidated: paying it out at its last quoted price would
-    # throw away the one fact that makes P&L, Brier, and calibration
-    # computable. Only a genuinely unfinished market is marked to market.
-    for book in books:
-        for ticker, pos in book.positions.items():
-            last = last_view.get(ticker)
-            if last is None:
-                continue
+    # ── end of a tick ────────────────────────────────────────────────────
 
-            finished = (last.close_time is not None and last.ts >= last.close_time)
-            outcome = last.final_result
-            if outcome in ("yes", "no", "void") and (finished or _past_close(last)):
-                rec = _settle_final(pos, last, costs, outcome)
+    def end_tick(self, now_ts):
+        """Close out a tick: settle what has resolved, release what can never
+        fill, forget what can never print again."""
+        settled = self.settle_due(now_ts)
+        self.expire_intents(now_ts)
+        if self.prune:
+            self._forget(now_ts)
+        return settled
+
+    def settle_due(self, now_ts):
+        """Settle every position whose market closed at or before `now_ts`
+        and whose outcome is recorded.
+
+        The archive's last bar for a market sits just INSIDE close_time, so
+        the per-bar test (`view.settled`) never fires on it; in a single pass
+        that is caught by finalize(), but a desk that wakes up every tick
+        would otherwise carry resolved matches as open positions for the
+        whole walk and its manager would never see a realized outcome. Same
+        bookkeeping as an in-walk settlement: cash back, journal written,
+        position gone.
+        """
+        n = 0
+        for book in self.books:
+            for ticker in list(book.positions):
+                pos = book.positions[ticker]
+                last = self._last_view.get(ticker)
+                if last is None or last.close_time is None or last.close_time > now_ts:
+                    continue
+                outcome = last.final_result
+                if outcome not in ("yes", "no", "void"):
+                    continue
+                rec = _settle_final(pos, last, self.costs, outcome)
+                rec["exit_ts"] = last.close_time
+                rec["agent"] = book.name
+                self.trades.append(rec)
+                book.bankroll += rec["net_pnl"] + pos.cost
+                if book.journal is not None and rec.get("settled") and rec.get("outcome") is not None:
+                    book.journal.record(rec["exit_ts"], rec.get("series"),
+                                        rec.get("model_prob"), rec.get("outcome"),
+                                        rec["net_pnl"])
+                del book.positions[ticker]
+                book.pending_exit.pop(ticker, None)
+                n += 1
+        return n
+
+    # ── end of data ──────────────────────────────────────────────────────
+
+    def open_positions(self):
+        """Every position still held, marked at its last seen price."""
+        out = []
+        for book in self.books:
+            for ticker, pos in book.positions.items():
+                last = self._last_view.get(ticker)
+                mid = last.mid() if last is not None else None
+                px = None if mid is None else (mid if pos.side == "yes" else 1.0 - mid)
+                out.append({"agent": book.name, "ticker": ticker, "side": pos.side,
+                            "cost": round(pos.cost, 4),
+                            "unrealized": None if px is None else round(pos.mark(px), 4)})
+        return out
+
+    def finalize(self):
+        """Settle or mark every position still open. Returns (trades, rejections).
+
+        Positions still open when the data ends must not vanish — that would
+        silently drop their P&L and flatter the result.
+
+        A market whose close_time has passed and whose outcome we recorded is
+        SETTLED, not liquidated: paying it out at its last quoted price would
+        throw away the one fact that makes P&L, Brier, and calibration
+        computable. Only a genuinely unfinished market is marked to market.
+        """
+        if self._finalized:
+            return self.trades, dict(self.rejections)
+        self._finalized = True
+        costs, trades, rejections = self.costs, self.trades, self.rejections
+        for book in self.books:
+            for ticker, pos in book.positions.items():
+                last = self._last_view.get(ticker)
+                if last is None:
+                    continue
+
+                finished = (last.close_time is not None and last.ts >= last.close_time)
+                outcome = last.final_result
+                if outcome in ("yes", "no", "void") and (finished or _past_close(last)):
+                    rec = _settle_final(pos, last, costs, outcome)
+                    rec["agent"] = book.name
+                    trades.append(rec)
+                    continue
+
+                price = last.mid()
+                if price is None:
+                    continue
+                px = price if pos.side == "yes" else 1.0 - price
+                gross = (px - pos.entry_price) * pos.contracts
+                rec = _record(pos, last.ts, px, gross, 0.0, None, False)
+                rec["liquidated_at_end"] = True
                 rec["agent"] = book.name
                 trades.append(rec)
-                continue
+                rejections["open_at_end"] += 1
 
-            price = last.mid()
-            if price is None:
-                continue
-            px = price if pos.side == "yes" else 1.0 - price
-            gross = (px - pos.entry_price) * pos.contracts
-            rec = _record(pos, last.ts, px, gross, 0.0, None, False)
-            rec["liquidated_at_end"] = True
-            rec["agent"] = book.name
-            trades.append(rec)
-            rejections["open_at_end"] += 1
-
-    trades.sort(key=lambda t: t["exit_ts"])
-    return trades, dict(rejections)
+        trades.sort(key=lambda t: t["exit_ts"])
+        return trades, dict(rejections)
 
 
 def _past_close(view):
