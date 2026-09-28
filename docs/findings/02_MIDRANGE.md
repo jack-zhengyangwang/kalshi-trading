@@ -22,3 +22,5 @@ trades the desks chose. Price = last hourly bid/ask 24h, 6h or 2h before close.
 
 1. Re-run on the droplet's full store (about 19,000 markets, roughly 5× the data).
 2. If 40–45¢ holds there, forward paper-test it before it counts. It's a hypothesis, not a result.
+
+**Follow-up:** price moves before kickoff, across all markets, are in [03_PRICE_MOVES.md](03_PRICE_MOVES.md).
