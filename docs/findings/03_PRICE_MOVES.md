@@ -36,3 +36,5 @@ moves, and which way do they go?
 - CLV still works as a **measure** of whether a strategy buys better prices than the market, but not as a strategy on its own.
 - A usable edge from price direction alone looks like **about 1¢, on favourites, with early entry**. That's worth knowing when choosing **when** to buy a bet you'd hold to settlement anyway.
 - **Next:** repeat on the droplet's full store (about 5× the markets), then test whether anything (Elo, form, bookmaker odds) predicts direction better than the price level alone.
+
+**Follow-up:** rule-based strategy ideas from the literature are in [04_STRATEGY_IDEAS.md](04_STRATEGY_IDEAS.md).
