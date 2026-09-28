@@ -60,3 +60,5 @@ error on a win rate is wider than any realistic edge, so this could be luck.
 2. Check that fills are realistic (entry at the ask vs the mid-price).
 3. A maker-fill simulation in the backtester.
 4. Results by league: thin markets may be less efficient.
+
+**Follow-up:** the 40–60¢ range is examined across all markets in [02_MIDRANGE.md](02_MIDRANGE.md).
