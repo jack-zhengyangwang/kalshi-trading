@@ -1,0 +1,18 @@
+{
+  "name": "always-favourite",
+  "version": 1,
+  "description": "A benchmark, not a strategy: buy YES on every leg trading 55-85c, fixed size, hold to settlement. The mirror of longshot-fader: if longshots are overpriced, favourites are underpriced. High win rate, small payouts — the opposite risk profile to draw-desk, so the two bracket the price axis. Has no view; model_prob is ignored.",
+  "side": "yes",
+  "universe": {"series": ["*"], "min_yes_price_cents": 55, "max_yes_price_cents": 85, "min_volume": 20},
+  "entry": {"all": [
+    {"signal": "price",  "op": "between", "value": [0.55, 0.85]},
+    {"signal": "spread", "op": "lt", "value": 8}
+  ]},
+  "sizing": {"method": "fixed", "dollars": 8.0, "max_bet_dollars": 8.0,
+             "max_concurrent_positions": 25},
+  "exit": {"any": [
+    {"signal": "hold_to_settlement", "op": "eq", "value": true}
+  ]},
+  "caps": {"daily_spend_dollars": 60.0, "per_market_dollars": 8.0,
+           "total_exposure_dollars": 300.0}
+}

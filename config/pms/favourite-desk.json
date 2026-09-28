@@ -1,0 +1,22 @@
+{
+  "name": "favourite-desk",
+  "description": "Benchmark desk: backs every favourite \u2014 YES on any leg trading 55-85c. The mirror of longshot-fader and the opposite risk profile to draw-desk; together the three bracket the price axis.",
+  "view": {
+    "view": "market"
+  },
+  "bankroll": 500.0,
+  "allocation": "equal",
+  "agents": [
+    {
+      "name": "always-favourite",
+      "spec": "strategies/agents/always-favourite.json"
+    }
+  ],
+  "caps": {
+    "daily_spend_dollars": 60.0,
+    "total_exposure_dollars": 300.0
+  },
+  "manager": {
+    "type": "none"
+  }
+}
