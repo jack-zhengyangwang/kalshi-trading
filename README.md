@@ -4,6 +4,17 @@ An autonomous system that scans every open Soccer market on Kalshi (discovered l
 
 **Status:** v4 (per-league brains, all-soccer). Droplet wiped 2026-09-07 for a clean rebuild — nothing is deployed or trading right now. See [CLAUDE.md](CLAUDE.md) for full agent instructions, [RECAP.md](RECAP.md) for latest results.
 
+## Latest finding — the market is close to efficient (2026-09-22)
+
+A 53-tick walk-forward (Jun 3 → Sep 14) ran 5 LLM-managed desks against 5 fixed benchmarks,
+$500 each. Across 3,582 settled bets the average price paid was 48.8¢ and the win rate
+47.7%: Kalshi's price already is the probability. Every desk that traded lost money after
+spread and fees; doing nothing beat all of them.
+
+![Kalshi's prices are the probabilities](docs/findings/img/01_calibration.png)
+
+Full write-up with four charts: [docs/findings/01_MARKET_EFFICIENCY.md](docs/findings/01_MARKET_EFFICIENCY.md).
+
 ## Quick Start
 
 ```bash
@@ -27,7 +38,9 @@ See [CLAUDE.md](CLAUDE.md) for the full runbook, architecture, and safety rules.
 | File | Purpose |
 |------|---------|
 | [CLAUDE.md](CLAUDE.md) | Agent instructions: architecture, runbook, ground rules |
-| [RECAP.md](RECAP.md) | Latest results + findings (2026-06-30) |
+| [docs/findings/01_MARKET_EFFICIENCY.md](docs/findings/01_MARKET_EFFICIENCY.md) | Walk-forward finding: Kalshi soccer prices ≈ probabilities (2026-09-22) |
+| [docs/backtester/08_WALK_FORWARD.md](docs/backtester/08_WALK_FORWARD.md) | Walk-forward runner + AI desk managers |
+| [RECAP.md](RECAP.md) | Older arena results + findings (2026-06-30) |
 | [docs/v3_plan.md](docs/v3_plan.md) | v3 design: what exists, what's duplicated, what's still to build |
 | [docs/BUILD_PLAN_V2.md](docs/BUILD_PLAN_V2.md) | Arena v2 original build plan (historical) |
 | [docs/PROMOTION_BUILD_PLAN.md](docs/PROMOTION_BUILD_PLAN.md) | Promotion patch-panel design |
