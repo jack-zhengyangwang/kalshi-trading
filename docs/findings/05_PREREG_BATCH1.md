@@ -51,6 +51,11 @@ pre-registration, not editing this one.
   - return on capital
   - split by league (reported, not used for pass/fail)
 - **Pass:** 99% interval above 0 on the test. They can't both pass: #2 passing means longshots are overpriced, #7 passing means underpriced, and neither passing means no bias.
+- **Added 2026-09-28, before any develop run:**
+  - thresholds are compared with the **mid** price
+  - develop picks the **(T, entry)** pair with the highest average net ¢ per contract; ties go to more bets
+  - the frozen pair is committed to `results/batch1_frozen.json` before `test` runs
+  - random-entry benchmark: same games and entry bar, a random leg and side, bought at the ask
 - **Power caveat:** about 1,900 bets are needed to detect a 1¢ edge. The local test period will be short of that, so a fail here means "not detected", not "not there".
 
 ## #3 Bookmaker value gap: needs your decision first
