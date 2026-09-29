@@ -136,6 +136,13 @@ where a real edge would first show up.**
 - **Where it runs:** on the droplet, with its full Kalshi store, which gives a bigger Table B. `soccer.db` is copied up from the laptop. The kickoff table and caches are rebuilt there.
 - Code is smoke-tested on the laptop using the **tune split only**, so the test sets are untouched before the real run.
 
+## Phase 2 result ([Finding 10](findings/10_PHASE2_TIERS.md), full droplet data)
+
+- ❌ **No signal:** 0 of 12 groups (3 tiers × Pinnacle + 3 entry times on Kalshi) pass Gate 2, and the market is more accurate in all 12.
+- Table B grew to 1,363 games (~3,400 legs per entry time). Lower divisions aren't easier; entry time doesn't matter.
+- T1 on Kalshi shows +0.4 at every entry time, but it's the same ~188 games, every interval includes 0, and it's −0.29 against Pinnacle.
+- **Public-data models don't beat or add to this market.** What's left: new information sources (paused), or close v2.
+
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
 - Idea checked: "the model picks the winner and the stake; enter at any price".
