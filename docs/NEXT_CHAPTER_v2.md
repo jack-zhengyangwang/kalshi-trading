@@ -87,6 +87,12 @@ where a real edge would first show up.**
 - **First bars to beat:** leg Brier score of the base rates, the bookmaker (Table A) and Kalshi (Table B).
 - **Open check:** the data lake keeps "the first bookmaker per fixture". Which bookmaker, and opening vs closing odds, are unknown.
 
+## Phase 0 status ([Finding 08](findings/08_DATASET.md))
+
+- ✅ Table A built: 54,254 matches, 35,693 with odds. Bar to beat (Jan–May 2026): bookmaker leg Brier **0.1981** vs base rates 0.2156.
+- ❌ Table B: only 12 of 967 Kalshi games join, because `soccer.db` has almost no results after May 2026.
+- **Next:** fill Jun–Sep results from the ESPN cache (already on disk), with Kalshi's settled markets as a fallback, then re-join.
+
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
 - Idea checked: "the model picks the winner and the stake; enter at any price".
