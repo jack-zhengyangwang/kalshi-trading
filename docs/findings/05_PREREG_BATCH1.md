@@ -86,6 +86,17 @@ pre-registration, not editing this one.
   - fill rate
   - net ¢ per filled contract (maker fee)
   - **adverse selection:** win rate of filled vs unfilled orders at the same starting price
+- **Added 2026-09-28, before any #1 run (the checks the pre-registration required):**
+  - **Fill data:** `backfill_candles.low` is the hourly **trade** low. It's empty only when there were no trades (88% of hours), and no trades means no fill.
+  - **Maker fee, per series from Kalshi's API (`/series/{ticker}` → `fee_type`):**
+    - 85 of 91 soccer series are `quadratic`: **no maker fee**.
+    - 6 are `quadratic_with_maker_fees` (Bundesliga, EPL, La Liga, Ligue 1, Serie A, UCL): ceil(0.0175 · p · (1−p)).
+    - The 0.0175 figure comes from secondary sources, because the official PDF is behind a bot check.
+    - Caveat: this is today's schedule, applied to July–September.
+  - **Order price:** min(bid + O, ask − 1). It never crosses the spread, or it would be a taker order.
+  - **Fill:** any bar after entry and before kickoff with `low` < our price.
+  - **Develop selection:** the (M, O) with the highest average net ¢ per filled contract **among settings with ≥ 50 fills**. Ties go to more fills. This is the lesson from #2.
+  - **Adverse selection:** for filled vs unfilled orders, report won minus price.
 - **Pass:** 99% interval above 0 on the test under the cautious fill model. A pass is **necessary but not sufficient**: #1 must also pass forward, because a model can't truly tell us what would have filled.
 
 ---
