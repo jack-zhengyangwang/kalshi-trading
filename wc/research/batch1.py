@@ -4,6 +4,8 @@ docs/findings/05_PREREG_BATCH1.md; this module only executes them.
     python -m wc.research.batch1 three-way      # #4: no parameters, develop + test together
     python -m wc.research.batch1 longshot develop   # #2 grid + #7 on develop
     python -m wc.research.batch1 longshot test      # frozen #2 + #7 on test, once
+    python -m wc.research.batch1 maker develop      # #1 grid on develop
+    python -m wc.research.batch1 maker test         # frozen #1 on test, once
 
 Every price is in integer cents, as the history DB stores it.
 """
@@ -26,6 +28,7 @@ ESPN_BACKED = ("agree", "disagree", "espn_only")
 RESULTS = os.path.join(paths.ROOT, "docs", "findings", "results")
 FROZEN = os.path.join(RESULTS, "batch1_frozen.json")
 STALE_H = 6
+SERIES_CACHE = os.path.join(paths.ROOT, "data", "kalshi_cache", "series")
 
 
 def _day_end(y, m, d):
@@ -241,6 +244,99 @@ def report_longshot(games, mode, frozen=None):
     return out
 
 
+# ── #1 maker ──────────────────────────────────────────────────────────────────
+
+def fee_type(series):
+    """Kalshi's fee_type for a series, from the cached /series response.
+    Unknown -> None, which maker_fee treats as charging the maker fee."""
+    path = os.path.join(SERIES_CACHE, f"{series}.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return (json.load(f).get("series") or {}).get("fee_type")
+
+
+def maker_fee(price_c, series_fee_type):
+    """0 on 'quadratic' series (taker-only fees); otherwise
+    ceil(0.0175 · p · (1 − p)) in cents."""
+    if series_fee_type == "quadratic":
+        return 0
+    return -(-175 * price_c * (100 - price_c) // 1_000_000)
+
+
+def entry_bar(bars, kickoff, entry_h):
+    cut = kickoff - entry_h * H
+    ok = [ts for ts, q in bars.items() if cut - STALE_H * H <= ts <= cut and valid(q)]
+    return (max(ok), bars[max(ok)]) if ok else (None, None)
+
+
+def maker_orders(game, min_mid, offset, entry_h=24):
+    """#1: for legs with mid >= min_mid at entry, rest a YES bid at
+    min(bid + offset, ask − 1) until kickoff. Filled only if a later bar's
+    trade low is strictly below our price (orders ahead of us at our price
+    fill first). Filled orders are held to settlement."""
+    out = []
+    ko = game["kickoff"]
+    for t, bars in game["legs"].items():
+        ts0, q = entry_bar(bars, ko, entry_h)
+        if not q or (q[0] + q[1]) / 2 < min_mid:
+            continue
+        price = min(q[0] + offset, q[1] - 1)
+        if price <= 0:
+            continue
+        filled = any(ts0 < ts < ko and lo < price
+                     for ts, lo in game.get("lows", {}).get(t, {}).items())
+        won = game["results"][t] == "yes"
+        fee = maker_fee(price, game.get("fee_types", {}).get(t))
+        out.append({"ev": game["ev"], "ticker": t, "price": price, "ask0": q[1],
+                    "filled": filled, "won": won, "fee": fee,
+                    "pnl": ((100 if won else 0) - price - fee) if filled else None})
+    return out
+
+
+MAKER_GRID = [(m, o) for m in (50, 60) for o in (0, 1)]
+MIN_FILLS = 50
+
+
+def _maker_summary(orders, games_by_ev):
+    filled = [o for o in orders if o["filled"]]
+    r = bootstrap(filled)
+    r["orders"] = len(orders)
+    r["fill_rate"] = round(len(filled) / len(orders), 4) if orders else None
+
+    def edge(os_):
+        return round(sum(100 * o["won"] - o["price"] for o in os_) / len(os_), 3) if os_ else None
+    r["won_minus_price_filled"] = edge(filled)
+    r["won_minus_price_unfilled"] = edge([o for o in orders if not o["filled"]])
+    # same legs, bought as a taker at the entry ask instead
+    taker = [{"ev": o["ev"], "pnl": 100 * o["won"] - o["ask0"] - taker_fee(o["ask0"])}
+             for o in filled]
+    r["same_legs_as_taker"] = bootstrap(taker)
+    r["random_benchmark"] = bootstrap(random_trades(games_by_ev, filled, 24)) if filled else None
+    return r
+
+
+def report_maker(games, mode, frozen=None):
+    by_ev = {g["ev"]: g for g in games}
+    out = {"games": len(games)}
+    if mode == "develop":
+        grid = {}
+        for m, o in MAKER_GRID:
+            grid[f"M{m}_O{o}"] = {"min_mid": m, "offset": o, **_maker_summary(
+                [x for g in games for x in maker_orders(g, m, o)], by_ev)}
+        eligible = [v for v in grid.values() if v["n_trades"] >= MIN_FILLS]
+        out["maker_grid"] = grid
+        out["maker_selected"] = None if not eligible else {
+            k: max(eligible, key=lambda v: (v["mean"], v["n_trades"]))[k]
+            for k in ("min_mid", "offset")}
+    else:
+        m, o = frozen["min_mid"], frozen["offset"]
+        r = _maker_summary([x for g in games for x in maker_orders(g, m, o)], by_ev)
+        r["passes"] = bool(r["n_trades"]) and r["ci99"][0] > 0
+        out["maker"] = {"min_mid": m, "offset": o, **r}
+    return out
+
+
 # ── data ──────────────────────────────────────────────────────────────────────
 
 def load_games(con, period):
@@ -267,12 +363,15 @@ def load_games(con, period):
         if not all(lo <= close <= hi for _, _, close, _ in legs):
             continue
         ko = legs[0][3]
-        bars = {}
+        bars, lows = {}, {}
         for t, _, _, _ in legs:
-            bars[t] = {ts: (b, a) for ts, b, a in con.execute(
-                "SELECT ts, yes_bid, yes_ask FROM backfill_candles "
-                "WHERE ticker=? AND interval_min=60 AND ts<?", (t, ko))}
-        games.append({"ev": ev, "kickoff": ko, "legs": bars,
+            rows_t = con.execute(
+                "SELECT ts, yes_bid, yes_ask, low FROM backfill_candles "
+                "WHERE ticker=? AND interval_min=60 AND ts<?", (t, ko)).fetchall()
+            bars[t] = {ts: (b, a) for ts, b, a, _ in rows_t}
+            lows[t] = {ts: lo for ts, _, _, lo in rows_t if lo is not None}
+        games.append({"ev": ev, "kickoff": ko, "legs": bars, "lows": lows,
+                      "fee_types": {t: fee_type(t.split("-")[0]) for t, _, _, _ in legs},
                       "results": {t: res for t, res, _, _ in legs},
                       "roles": {t: roles[t] for t, _, _, _ in legs}})
     return games
@@ -306,13 +405,15 @@ def report_three_way(games):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("test", choices=["three-way", "longshot"])
+    ap.add_argument("test", choices=["three-way", "longshot", "maker"])
     ap.add_argument("mode", nargs="?", choices=["develop", "test"])
     ap.add_argument("--db", default=os.path.join(paths.ROOT, "data", "market_history.db"))
     a = ap.parse_args()
     con = sqlite3.connect(a.db)
     if a.test == "longshot":
         return main_longshot(con, a.mode or "develop")
+    if a.test == "maker":
+        return main_maker(con, a.mode or "develop")
     out = {p: report_three_way(load_games(con, p)) for p in PERIODS}
     os.makedirs(RESULTS, exist_ok=True)
     path = os.path.join(RESULTS, "batch1_threeway.json")
@@ -340,6 +441,30 @@ def main_longshot(con, mode):
     if mode == "develop":
         for k, v in out["longshot_no_grid"].items():
             print(f"  #2 {k:8} n={v['n_trades']:4} mean={v['mean']} ci95={v['ci95']}")
+    print("wrote", os.path.relpath(path, paths.ROOT))
+
+
+
+def main_maker(con, mode):
+    frozen = None
+    if mode == "test":
+        assert_committed(FROZEN)
+        frozen = load_frozen(FROZEN, "maker")
+    out = report_maker(load_games(con, mode), mode, frozen)
+    os.makedirs(RESULTS, exist_ok=True)
+    path = os.path.join(RESULTS, f"batch1_maker_{mode}.json")
+    with open(path, "w") as f:
+        json.dump(out, f, indent=1)
+    rows = out.get("maker_grid") or {"frozen": out.get("maker")}
+    for k, v in rows.items():
+        print(f"  #1 {k:8} orders={v['orders']:5} fills={v['n_trades']:4} "
+              f"fill_rate={v['fill_rate']} mean={v['mean']} ci95={v['ci95']} ci99={v['ci99']} "
+              f"edge filled/unfilled={v['won_minus_price_filled']}/{v['won_minus_price_unfilled']} "
+              f"taker_same_legs={v['same_legs_as_taker']['mean']}")
+    if mode == "develop":
+        print("  selected:", out["maker_selected"])
+    else:
+        print("  passes:", out["maker"]["passes"])
     print("wrote", os.path.relpath(path, paths.ROOT))
 
 

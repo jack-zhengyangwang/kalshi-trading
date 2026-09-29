@@ -1,3 +1,12 @@
 {
- "longshot_no": {"threshold": 5, "entry_h": 6, "selected_on": "develop 2026-09-28, n=10 (small)"}
+ "longshot_no": {
+  "threshold": 5,
+  "entry_h": 6,
+  "selected_on": "develop 2026-09-28, n=10 (small)"
+ },
+ "maker": {
+  "min_mid": 50,
+  "offset": 1,
+  "selected_on": "develop 2026-09-28, 144 fills"
+ }
 }

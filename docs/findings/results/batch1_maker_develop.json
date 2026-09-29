@@ -1,0 +1,189 @@
+{
+ "games": 636,
+ "maker_grid": {
+  "M50_O0": {
+   "min_mid": 50,
+   "offset": 0,
+   "n_trades": 117,
+   "n_games": 117,
+   "mean": -1.932,
+   "ci95": [
+    -11.009,
+    7.265
+   ],
+   "ci99": [
+    -14.094,
+    10.291
+   ],
+   "orders": 264,
+   "fill_rate": 0.4432,
+   "won_minus_price_filled": -1.906,
+   "won_minus_price_unfilled": 6.503,
+   "same_legs_as_taker": {
+    "n_trades": 117,
+    "n_games": 117,
+    "mean": -5.795,
+    "ci95": [
+     -14.726,
+     3.402
+    ],
+    "ci99": [
+     -17.974,
+     6.359
+    ]
+   },
+   "random_benchmark": {
+    "n_trades": 117,
+    "n_games": 117,
+    "mean": -4.137,
+    "ci95": [
+     -12.034,
+     3.436
+    ],
+    "ci99": [
+     -13.829,
+     6.795
+    ]
+   }
+  },
+  "M50_O1": {
+   "min_mid": 50,
+   "offset": 1,
+   "n_trades": 144,
+   "n_games": 144,
+   "mean": -0.285,
+   "ci95": [
+    -8.438,
+    7.424
+   ],
+   "ci99": [
+    -10.243,
+    9.896
+   ],
+   "orders": 264,
+   "fill_rate": 0.5455,
+   "won_minus_price_filled": -0.264,
+   "won_minus_price_unfilled": 5.217,
+   "same_legs_as_taker": {
+    "n_trades": 144,
+    "n_games": 144,
+    "mean": -3.688,
+    "ci95": [
+     -11.819,
+     4.007
+    ],
+    "ci99": [
+     -13.611,
+     6.493
+    ]
+   },
+   "random_benchmark": {
+    "n_trades": 144,
+    "n_games": 144,
+    "mean": -0.194,
+    "ci95": [
+     -7.549,
+     7.021
+    ],
+    "ci99": [
+     -10.521,
+     9.007
+    ]
+   }
+  },
+  "M60_O0": {
+   "min_mid": 60,
+   "offset": 0,
+   "n_trades": 54,
+   "n_games": 54,
+   "mean": -6.796,
+   "ci95": [
+    -19.907,
+    5.778
+   ],
+   "ci99": [
+    -24.463,
+    9.444
+   ],
+   "orders": 114,
+   "fill_rate": 0.4737,
+   "won_minus_price_filled": -6.759,
+   "won_minus_price_unfilled": 2.467,
+   "same_legs_as_taker": {
+    "n_trades": 54,
+    "n_games": 54,
+    "mean": -10.556,
+    "ci95": [
+     -23.537,
+     1.87
+    ],
+    "ci99": [
+     -28.204,
+     5.63
+    ]
+   },
+   "random_benchmark": {
+    "n_trades": 54,
+    "n_games": 54,
+    "mean": -0.278,
+    "ci95": [
+     -9.907,
+     9.222
+    ],
+    "ci99": [
+     -14.111,
+     11.907
+    ]
+   }
+  },
+  "M60_O1": {
+   "min_mid": 60,
+   "offset": 1,
+   "n_trades": 66,
+   "n_games": 66,
+   "mean": -5.348,
+   "ci95": [
+    -16.5,
+    5.606
+   ],
+   "ci99": [
+    -21.197,
+    9.197
+   ],
+   "orders": 114,
+   "fill_rate": 0.5789,
+   "won_minus_price_filled": -5.318,
+   "won_minus_price_unfilled": 1.5,
+   "same_legs_as_taker": {
+    "n_trades": 66,
+    "n_games": 66,
+    "mean": -8.636,
+    "ci95": [
+     -19.894,
+     2.318
+    ],
+    "ci99": [
+     -24.5,
+     5.727
+    ]
+   },
+   "random_benchmark": {
+    "n_trades": 66,
+    "n_games": 66,
+    "mean": 3.712,
+    "ci95": [
+     -5.818,
+     12.97
+    ],
+    "ci99": [
+     -8.545,
+     16.091
+    ]
+   }
+  }
+ },
+ "maker_selected": {
+  "min_mid": 50,
+  "offset": 1
+ }
+}

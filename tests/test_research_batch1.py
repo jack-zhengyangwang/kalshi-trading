@@ -149,3 +149,47 @@ def test_load_frozen_refuses_a_missing_file(tmp_path):
     import pytest
     with pytest.raises(b1.NotFrozen):
         b1.load_frozen(str(tmp_path / "nope.json"), "longshot_no")
+
+
+# ── #1 maker ──────────────────────────────────────────────────────────────────
+
+def _mgame(quote, lows, result="yes", fee_type="quadratic", entry_ts=KO - 24 * H):
+    return {"ev": "EV", "kickoff": KO, "legs": {"A": {entry_ts: quote}},
+            "lows": {"A": lows}, "results": {"A": result}, "roles": {"A": "home"},
+            "fee_types": {"A": fee_type}}
+
+
+def test_maker_fee_depends_on_the_series():
+    assert b1.maker_fee(50, "quadratic") == 0
+    assert b1.maker_fee(50, "quadratic_with_maker_fees") == 1     # 0.4375c -> 1c
+    assert b1.maker_fee(10, "quadratic_with_maker_fees") == 1
+    assert b1.maker_fee(50, None) == 1                            # unknown -> charge it
+
+
+def test_maker_order_rests_at_the_bid_and_never_crosses():
+    g = _mgame((60, 61), {})
+    [o] = b1.maker_orders(g, min_mid=50, offset=1)
+    assert o["price"] == 60                                       # bid+1 would equal the ask
+
+
+def test_maker_fills_only_on_a_later_trade_strictly_below_our_price():
+    at = _mgame((60, 62), {KO - 10 * H: 60})
+    below = _mgame((60, 62), {KO - 10 * H: 59})
+    before = _mgame((60, 62), {KO - 30 * H: 50})
+    assert b1.maker_orders(at, 50, 0)[0]["filled"] is False
+    assert b1.maker_orders(below, 50, 0)[0]["filled"] is True
+    assert b1.maker_orders(before, 50, 0)[0]["filled"] is False
+
+
+def test_maker_pnl_counts_only_filled_orders_with_the_maker_fee():
+    win = b1.maker_orders(_mgame((60, 62), {KO - 10 * H: 59}, "yes",
+                                 "quadratic_with_maker_fees"), 50, 0)[0]
+    assert win["pnl"] == 100 - 60 - b1.maker_fee(60, "quadratic_with_maker_fees")
+    lose = b1.maker_orders(_mgame((60, 62), {KO - 10 * H: 59}, "no"), 50, 0)[0]
+    assert lose["pnl"] == -60
+    unfilled = b1.maker_orders(_mgame((60, 62), {}), 50, 0)[0]
+    assert unfilled["pnl"] is None
+
+
+def test_maker_skips_legs_below_the_minimum_mid():
+    assert b1.maker_orders(_mgame((40, 42), {KO - 10 * H: 30}), 50, 0) == []
