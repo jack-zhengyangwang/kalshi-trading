@@ -113,6 +113,12 @@ where a real edge would first show up.**
 - 3 models × 2 tables, so everything uses 99% intervals.
 - Phase 1 involves **no betting**. It's about accuracy and information only.
 
+## Phase 1 result ([Finding 09](findings/09_PHASE1_BASELINES.md))
+
+- ❌ **0 of 4 models pass either gate.** Best: M2 (all features, linear), Brier 0.2027 vs Pinnacle 0.1981 and 0.2014 vs Kalshi 0.1975.
+- Gate 2 against Pinnacle is a confident no (narrow intervals). Against Kalshi it's undecided (wide intervals, small Table B).
+- **Options:** Phase 2 (split by league tier and entry time), a bigger Table B (droplet), or new information sources (paused).
+
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
 - Idea checked: "the model picks the winner and the stake; enter at any price".
