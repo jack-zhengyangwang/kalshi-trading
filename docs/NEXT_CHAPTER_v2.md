@@ -119,6 +119,23 @@ where a real edge would first show up.**
 - Gate 2 against Pinnacle is a confident no (narrow intervals). Against Kalshi it's undecided (wide intervals, small Table B).
 - **Options:** Phase 2 (split by league tier and entry time), a bigger Table B (droplet), or new information sources (paused).
 
+## Phase 2 protocol (fixed 2026-09-29, before any Phase 2 run)
+
+**Question:** is the market weaker somewhere: in some league tiers, or earlier before kickoff?
+
+- **Model:** M2 (all features, logistic regression), **C = 0.01 frozen** from Phase 1, refit on train + tune. No new model search.
+- **League tiers** (from `soccer.db` league names):
+  - **T1 top:** EPL, LaLiga, SerieA, Bundesliga, Ligue1, UCL
+  - **T3 lower divisions:** Championship, Bundesliga2, BrasileiroB, BrasileiroC, ArgNacionalB, SerieB, SerieC, LaLiga2, Ligue2, and any league whose name marks a second or third tier
+  - **T2 everything else** (other first divisions)
+- **Groups tested:**
+  - Table A test (vs Pinnacle closing): T1, T2, T3
+  - Table B (vs Kalshi): T1, T2, T3 × entry 24h / 6h / 1h
+- **Gate 2 in each group:** the model's coefficient must have a 99% interval above 0 (bootstrap by game). Groups with fewer than 150 legs are reported but not judged.
+- **Counts as a signal only if** a Table B tier passes at **≥ 2 entry times**. One pass among 12 groups is expected by chance.
+- **Where it runs:** on the droplet, with its full Kalshi store, which gives a bigger Table B. `soccer.db` is copied up from the laptop. The kickoff table and caches are rebuilt there.
+- Code is smoke-tested on the laptop using the **tune split only**, so the test sets are untouched before the real run.
+
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
 - Idea checked: "the model picks the winner and the stake; enter at any price".
