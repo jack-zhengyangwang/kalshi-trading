@@ -7,7 +7,7 @@ Code: `wc/research/batch1.py`. Raw results: `results/*.json`.
 |---|---|---|---|
 | 4 | Three-way sum | **done** | **FAIL:** no gap in 860 games |
 | 2 vs 7 | Longshot direction | **done** | **FAIL, both:** #2 never fired in test; #7 −7.8¢ |
-| 1 | Maker orders | **next** | — |
+| 1 | Maker orders | **done** | **FAIL (not significant):** +11.0¢ on 40 fills, 99% −8.6..+28 |
 | 3 | Bookmaker gap | **paused** (Jack, 2026-09-28: no droplet deploy for now) | — |
 
 ## #4 Three-way sum: FAIL
@@ -36,3 +36,24 @@ Code: `wc/research/batch1.py`. Raw results: `results/*.json`.
   - Our best estimate is **no longshot bias big enough to beat the fee**.
 - **Lesson for the pre-registration:** the selection rule should have required a minimum number of bets (say, n ≥ 50). Recorded here; any future batch must fix it **before** develop runs.
 - Rebuild: `python -m wc.research.batch1 longshot develop`, then `... longshot test` (it refuses to run unless `results/batch1_frozen.json` is committed).
+
+## #1 Maker orders: FAIL (not significant), but the most promising
+
+![Maker results](img/15_maker_results.png)
+
+- **Setup checked first:**
+  - `low` is the hourly trade low.
+  - **85 of 91 soccer series charge no maker fee** (Kalshi `/series` API); the top five leagues and the UCL do.
+- **Develop (636 games):** the min-50-fills rule picked **legs ≥50¢, bid + 1¢**. That gave 144 fills (54% fill rate) at **−0.3¢** per contract.
+- **Test (331 games), run once:** **+11.0¢** on 40 fills, but the 99% interval runs from −8.6 to +28¢, so it's a **FAIL** on the pre-registered bar.
+  - Favourites simply won a lot that fortnight: orders that *didn't* fill were +6.7¢ too.
+- **Two things held in both periods:**
+  1. **Maker beats taker on the same legs:** by about 3.5¢ on develop and about 3.3¢ on test. That's the spread plus the fee you don't pay.
+  2. **Adverse selection:** on develop, filled orders did 5–9¢ worse than unfilled ones. Your fills come disproportionately from moments when the price was about to fall.
+- **What it means:** the way we trade matters more than which markets we pick, just as the literature said. But even a maker earns about 0 before luck on this data. A real test needs **more fills (forward paper) and trade-level data** for a realistic fill model.
+- Rebuild: `python -m wc.research.batch1 maker develop`, then `... maker test`.
+
+## Batch 1 overall
+
+- **4 tests, 0 passes.** Kalshi soccer winner prices look efficient for a rule-based trader on hourly data, which matches Findings 01–03.
+- **The one consistent signal:** posting your own orders saves about 3.5¢ per contract over taking the price. If any future strategy has an edge, it should post orders rather than take them.

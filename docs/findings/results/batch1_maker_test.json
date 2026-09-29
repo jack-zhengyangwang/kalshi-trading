@@ -1,0 +1,49 @@
+{
+ "games": 331,
+ "maker": {
+  "min_mid": 50,
+  "offset": 1,
+  "n_trades": 40,
+  "n_games": 40,
+  "mean": 10.975,
+  "ci95": [
+   -3.4,
+   24.525
+  ],
+  "ci99": [
+   -8.55,
+   28.1
+  ],
+  "orders": 90,
+  "fill_rate": 0.4444,
+  "won_minus_price_filled": 11.125,
+  "won_minus_price_unfilled": 6.72,
+  "same_legs_as_taker": {
+   "n_trades": 40,
+   "n_games": 40,
+   "mean": 7.725,
+   "ci95": [
+    -6.625,
+    21.15
+   ],
+   "ci99": [
+    -11.7,
+    24.925
+   ]
+  },
+  "random_benchmark": {
+   "n_trades": 40,
+   "n_games": 40,
+   "mean": -2.775,
+   "ci95": [
+    -14.65,
+    9.075
+   ],
+   "ci99": [
+    -18.75,
+    13.425
+   ]
+  },
+  "passes": false
+ }
+}

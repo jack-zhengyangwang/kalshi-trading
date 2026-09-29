@@ -103,11 +103,61 @@ def longshot_results():
     save(fig, "14_longshot_results.png")
 
 
+def maker_results():
+    """#1: maker vs the same legs bought as a taker, and filled vs unfilled
+    (adverse selection), develop grid and test."""
+    import json
+    res = os.path.join(ROOT, "docs", "findings", "results")
+    dev = json.load(open(os.path.join(res, "batch1_maker_develop.json")))
+    test = json.load(open(os.path.join(res, "batch1_maker_test.json")))
+    sel = dev["maker_selected"]
+    rows = [(f"M≥{v['min_mid']}¢, bid+{v['offset']}¢"
+             + ("  ← frozen" if (v["min_mid"], v["offset"]) == (sel["min_mid"], sel["offset"])
+                else ""), "develop", v) for v in dev["maker_grid"].values()]
+    rows.append(("frozen setting", "test", test["maker"]))
+
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(12.5, 5.2), sharey=True,
+                                  gridspec_kw={"width_ratios": [1.5, 1]})
+    for i, (label, period, r) in enumerate(rows):
+        c = BLUE if period == "develop" else ORANGE
+        ax.plot(r["ci99"], [i, i], color=c, lw=1.5, alpha=0.35)
+        ax.plot(r["ci95"], [i, i], color=c, lw=4, alpha=0.6, solid_capstyle="butt")
+        ax.plot(r["mean"], i, "o", color=c, ms=9, mec="white", mew=1.5)
+        ax.plot(r["same_legs_as_taker"]["mean"], i, "x", color=INK_2, ms=8, mew=2)
+        ax.text(r["ci99"][1] + 1, i, f"{r['mean']:+.1f}¢  ({r['n_trades']} fills)",
+                va="center", fontsize=9, color=INK)
+    ax.axvline(0, color=INK_2, lw=1.2, ls="--")
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([f"{lab}  [{per}]" for lab, per, _ in rows], color=INK)
+    ax.invert_yaxis()
+    ax.set_xlim(-28, 42)
+    ax.set_xlabel("Net ¢ per filled contract. Thick 95%, thin 99%. ✕ = same legs as taker")
+    ax.grid(axis="y", visible=False)
+    fig.suptitle("#1 Maker: better than taking, not proven profitable", x=0.02, ha="left",
+                 fontsize=14, fontweight="bold", color=INK)
+    ax.set_title("Profit per filled contract", fontsize=11.5)
+
+    y = range(len(rows))
+    f = [r["won_minus_price_filled"] for _, _, r in rows]
+    u = [r["won_minus_price_unfilled"] for _, _, r in rows]
+    ax2.barh([i - 0.18 for i in y], f, 0.34, color=BLUE, label="orders that filled")
+    ax2.barh([i + 0.18 for i in y], u, 0.34, color=MUTED, label="orders that didn't")
+    ax2.axvline(0, color=INK_2, lw=1)
+    ax2.set_xlabel("Won minus price (¢), before fees")
+    ax2.grid(axis="y", visible=False)
+    ax2.set_title("Adverse selection: fills are the worse bets", fontsize=11.5)
+    ax2.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=2, fontsize=9,
+               labelcolor=INK)
+    fig.tight_layout()
+    save(fig, "15_maker_results.png")
+
+
 def main():
     db = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "data", "market_history.db")
     con = sqlite3.connect(db)
     closest_three_way(con)
     longshot_results()
+    maker_results()
 
 
 if __name__ == "__main__":
