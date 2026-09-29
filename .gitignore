@@ -41,3 +41,5 @@ data/walks/
 data/espn_cache/
 data/kalshi_cache/
 data/research/
+*.db-shm
+*.db-wal
