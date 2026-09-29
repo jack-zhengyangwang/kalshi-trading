@@ -111,6 +111,12 @@ to be above 0 (five tests). The git commit of each frozen value is its timestamp
 
 ---
 
+## Addendum: can a model ignore the price? ([Finding 07](findings/07_PRICE_VS_MODEL.md))
+
+![Price vs model](findings/img/16_price_vs_model.png)
+
+- No. Profit per $ = model probability ÷ price − 1, and the price predicts the outcome strongly (+1.30) while the Elo model adds nothing beside it.
+
 ## What we learned
 
 - **The price is the probability.** An edge has to come from knowing something the price doesn't, not from how we trade.

@@ -49,9 +49,16 @@ where a real edge would first show up.**
 
 ## Decisions for Jack before Phase 0
 
-1. **Data:** v1.0 used only the local store (~3,300 markets). A model needs more: **use the droplet's full store (~5×)?**
+1. **Data:** ✅ **use the data already collected; no new collection** (Jack, 2026-09-28). To confirm: does that include the droplet's store (~5× the local copy, also already collected)?
 2. **Bookmaker odds:** probably the strongest single predictor, and also the strongest benchmark. **Restart forward collection (#3), or find a historical source?**
 3. **LLM as a predictor:** the desk-manager setup could produce a p̂ per game as one more input. Worth testing in Phase 1?
+
+## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
+
+- Idea checked: "the model picks the winner and the stake; enter at any price".
+- Profit per $ = model probability ÷ price − 1, so **the price is always in the answer**.
+- Price and outcome are strongly related (market coefficient +1.30), and the Elo model added **nothing** once the price was known.
+- **So the stake is set by the edge (p̂ − price), not by p̂ alone.**
 
 ## Rules carried over from v1.0
 
