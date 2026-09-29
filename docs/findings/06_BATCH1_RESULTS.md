@@ -8,7 +8,7 @@ Code: `wc/research/batch1.py`. Raw results: `results/*.json`.
 | 4 | Three-way sum | **done** | **FAIL:** no gap in 860 games |
 | 2 vs 7 | Longshot direction | next | — |
 | 1 | Maker orders | after that | — |
-| 3 | Bookmaker gap | forward collection to be set up | — |
+| 3 | Bookmaker gap | **paused** (Jack, 2026-09-28: no droplet deploy for now) | — |
 
 ## #4 Three-way sum: FAIL
 
