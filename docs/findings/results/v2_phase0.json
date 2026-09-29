@@ -1,0 +1,77 @@
+{
+ "espn_results_on_disk": 10430,
+ "kalshi_settled_games": 1331,
+ "added_from_espn": 1314,
+ "added_from_kalshi": 99,
+ "matches": 55667,
+ "kalshi_games": 967,
+ "kalshi_joined": 457,
+ "kalshi_unmatched": 510,
+ "kalshi_rows": 3855,
+ "unmatched_sample": [
+  "KXAFCCLGAME-26AUG11ADUCON",
+  "KXAFCCLGAME-26AUG11GAWGAM",
+  "KXAFCCLGAME-26AUG11JAZITJ",
+  "KXAFCCLGAME-26AUG11PAKHUI",
+  "KXALLSVENSKANGAME-26AUG02AIKORG",
+  "KXALLSVENSKANGAME-26AUG08ORGAIK",
+  "KXALLSVENSKANGAME-26AUG16DJUAIK",
+  "KXALLSVENSKANGAME-26AUG30AIKHIF",
+  "KXALLSVENSKANGAME-26JUL11MJAAIK",
+  "KXALLSVENSKANGAME-26JUL18AIKGAIS",
+  "KXALLSVENSKANGAME-26JUL27HACAIK",
+  "KXALLSVENSKANGAME-26SEP07MALAIK",
+  "KXAPFDDHGAME-26AUG01CPOLUQ",
+  "KXAPFDDHGAME-26AUG01SPOMAY",
+  "KXAPFDDHGAME-26AUG02GUALIB",
+  "KXAPFDDHGAME-26AUG02OLIRUB",
+  "KXAPFDDHGAME-26AUG03RECNAC",
+  "KXAPFDDHGAME-26AUG03TRISSL",
+  "KXAPFDDHGAME-26AUG07RUBREC",
+  "KXAPFDDHGAME-26AUG08MAYOLI",
+  "KXAPFDDHGAME-26AUG08SPOCPO",
+  "KXAPFDDHGAME-26AUG09NACGUA",
+  "KXAPFDDHGAME-26AUG09SSLLUQ",
+  "KXAPFDDHGAME-26AUG10LIBTRI",
+  "KXAPFDDHGAME-26AUG14RECMAY"
+ ],
+ "splits": {
+  "kalshi_period": 1854,
+  "test": 4756,
+  "train": 38099,
+  "tune": 10958
+ },
+ "with_bookmaker_odds": 35693,
+ "baselines": {
+  "A_train": {
+   "matches": 27018,
+   "brier_bookmaker": 0.19751387703827136,
+   "brier_base_rate": 0.21672918908532893
+  },
+  "A_tune": {
+   "matches": 6681,
+   "brier_bookmaker": 0.19867257651349127,
+   "brier_base_rate": 0.21543942447588235
+  },
+  "A_test": {
+   "matches": 1954,
+   "brier_bookmaker": 0.19813843560795155,
+   "brier_base_rate": 0.21557690723171793
+  },
+  "B_24h": {
+   "legs": 1275,
+   "brier_kalshi_mid": 0.1975442549019608,
+   "brier_base_rate": 0.21133165538868753
+  },
+  "B_6h": {
+   "legs": 1290,
+   "brier_kalshi_mid": 0.19876488372093024,
+   "brier_base_rate": 0.21200216885331108
+  },
+  "B_1h": {
+   "legs": 1290,
+   "brier_kalshi_mid": 0.19922236434108526,
+   "brier_base_rate": 0.2120264398162666
+  }
+ }
+}
