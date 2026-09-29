@@ -30,7 +30,7 @@ from collections import defaultdict, deque
 
 from wc import paths
 from wc.research.batch1 import ESPN_BACKED, entry_quote
-from wc.research.kickoff import names_match
+from wc.research.kickoff import _tokens, names_match, parse_ts
 
 ELO_BASE = 1500.0
 ELO_K = 24.0
@@ -45,6 +45,7 @@ SOCCER_DB = os.path.join(paths.ROOT, "data", "soccer.db")
 HISTORY_DB = os.path.join(paths.ROOT, "data", "market_history.db")
 OUT_DB = os.path.join(paths.ROOT, "data", "research", "v2_dataset.db")
 RESULTS = os.path.join(paths.ROOT, "docs", "findings", "results")
+ESPN_CACHE = os.path.join(paths.ROOT, "data", "espn_cache")
 
 
 def _ts(y, m, d):
@@ -100,7 +101,8 @@ class _State:
         self.league = defaultdict(deque)                         # league -> (kickoff, outcome)
 
     def update(self, m):
-        h, a, res = m["home_key"], m["away_key"], outcome(m["hg"], m["ag"])
+        h, a = m["home_key"], m["away_key"]
+        res = m.get("res") or outcome(m["hg"], m["ag"])
         eh, ea = self.elo[h], self.elo[a]
         exp_h = 1 / (1 + 10 ** ((ea - (eh + ELO_HOME)) / 400))
         s = {"home": 1.0, "draw": 0.5, "away": 0.0}[res]
@@ -192,6 +194,160 @@ def join_kalshi(home, away, kickoff, candidates, window=JOIN_WINDOW_S):
     return (next(iter(hits)), was_swapped) if len(hits) == 1 else None
 
 
+# ── 0b: Jun–Sep results from sources already on disk ──────────────────────────
+
+ESPN_DONE = {"STATUS_FULL_TIME": False, "STATUS_FINAL_AET": True, "STATUS_FINAL_PEN": True}
+
+
+def espn_results(events):
+    """Finished ESPN games as results. Kalshi settles on the 90-minute result;
+    a game that went to extra time or penalties was level after 90, so it is a
+    draw here, and its goals are unknown (the ESPN score includes extra time)."""
+    out = {}
+    for e in events:
+        status = ((e.get("status") or {}).get("type") or {}).get("name")
+        if status not in ESPN_DONE:
+            continue
+        sides = {c.get("homeAway"): c for c in (e.get("competitions") or [{}])[0]
+                 .get("competitors") or []}
+        if set(sides) != {"home", "away"}:
+            continue
+        ko = parse_ts(e.get("date"))
+        if ko is None:
+            continue
+        if ESPN_DONE[status]:
+            hg = ag = None
+            res = "draw"
+        else:
+            try:
+                hg, ag = int(sides["home"].get("score")), int(sides["away"].get("score"))
+            except (TypeError, ValueError):
+                continue
+            res = outcome(hg, ag)
+        out[e["id"]] = {"espn_id": e["id"], "kickoff": ko, "hg": hg, "ag": ag, "res": res,
+                        "home": sides["home"]["team"].get("displayName"),
+                        "away": sides["away"]["team"].get("displayName")}
+    return list(out.values())
+
+
+class TeamIndex:
+    """Maps a team name from another source to a soccer.db team key. A name
+    alone is often ambiguous ("Nacional"), so pairs are resolved together:
+    both teams must share a league in which they have played."""
+
+    def __init__(self, registry):
+        # registry: iterable of (name, key, league, last_kickoff)
+        self.names = defaultdict(set)                       # prefix -> names
+        self.by_name = defaultdict(dict)                    # name -> {key: {league: last}}
+        for name, key, league, last in registry:
+            leagues = self.by_name[name].setdefault(key, {})
+            leagues[league] = max(leagues.get(league, 0), last or 0)
+            for t in _tokens(name):
+                self.names[t[:4]].add(name)
+
+    def candidates(self, name):
+        pool = set()
+        for t in _tokens(name):
+            pool |= self.names.get(t[:4], set())
+        out = defaultdict(dict)
+        for n in pool:
+            if names_match(name, n):
+                for key, leagues in self.by_name[n].items():
+                    for lg, last in leagues.items():
+                        out[key][lg] = max(out[key].get(lg, 0), last)
+        return out
+
+    def resolve_pair(self, home, away):
+        """(home_key, away_key, league) or None if unknown or ambiguous."""
+        ch, ca = self.candidates(home), self.candidates(away)
+        pairs = [(kh, ka) for kh in ch for ka in ca if kh != ka and set(ch[kh]) & set(ca[ka])]
+        if len(pairs) != 1:
+            return None
+        kh, ka = pairs[0]
+        league = max(set(ch[kh]) & set(ca[ka]), key=lambda lg: min(ch[kh][lg], ca[ka][lg]))
+        return kh, ka, league
+
+
+def kalshi_outcome(legs, home, away):
+    """home / draw / away from a Kalshi game's three settled legs, or None."""
+    if len(legs) != 3:
+        return None
+    winners = []
+    for _, sub, res in legs:
+        if res != "yes":
+            continue
+        winners.append("draw" if sub == "Tie" else "home" if names_match(sub, home)
+                       else "away" if names_match(sub, away) else None)
+    return winners[0] if len(winners) == 1 and winners[0] else None
+
+
+def extra_matches(existing, espn, kalshi_games, index):
+    """Results not already in soccer.db: ESPN first (with goals), then
+    Kalshi settlements (outcome only). Duplicates — the same two teams
+    within the join window — are skipped."""
+    seen = defaultdict(list)
+    for m in existing:
+        seen[frozenset((m["home_key"], m["away_key"]))].append(m["kickoff"])
+
+    def dup(kh, ka, ko):
+        return any(abs(k - ko) <= JOIN_WINDOW_S for k in seen[frozenset((kh, ka))])
+
+    out = []
+
+    def add(src, sid, g, res, hg, ag):
+        r = index.resolve_pair(g["home"], g["away"])
+        if not r or dup(r[0], r[1], g["kickoff"]):
+            return
+        kh, ka, league = r
+        out.append({"id": f"{src}:{sid}", "league": league, "home": g["home"], "away": g["away"],
+                    "home_key": kh, "away_key": ka, "kickoff": g["kickoff"],
+                    "known_at": g["kickoff"] + 2 * 3600, "hg": hg, "ag": ag, "res": res,
+                    "shots_h": None, "shots_a": None, "odds": (None, None, None),
+                    "source": src})
+        seen[frozenset((kh, ka))].append(g["kickoff"])
+
+    for g in espn:
+        add("espn", g["espn_id"], g, g["res"], g["hg"], g["ag"])
+    for g in kalshi_games:
+        res = kalshi_outcome(g["legs"], g["home"], g["away"])
+        if res:
+            add("kalshi", g["ev"], g, res, None, None)
+    return out
+
+
+def team_registry(matches):
+    reg = {}
+    for m in matches:
+        for name, key in ((m["home"], m["home_key"]), (m["away"], m["away_key"])):
+            k = (name, key, m["league"])
+            reg[k] = max(reg.get(k, 0), m["kickoff"])
+    return [(n, k, lg, last) for (n, k, lg), last in reg.items()]
+
+
+def load_espn_cache(cache_dir=ESPN_CACHE):
+    events = []
+    if os.path.isdir(cache_dir):
+        for f in sorted(os.listdir(cache_dir)):
+            if f.endswith(".json"):
+                with open(os.path.join(cache_dir, f)) as fh:
+                    events += json.load(fh).get("events") or []
+    return espn_results(events)
+
+
+def load_kalshi_settled(hcon):
+    """Every settled Kalshi game with a kickoff estimate (any kickoff status
+    except missing): the fallback source of Jun–Sep results."""
+    rows = hcon.execute(
+        "SELECT m.event_ticker, m.ticker, m.sub_title, m.home, m.away, m.result, k.kickoff_ts "
+        "FROM markets m JOIN kickoffs k USING(event_ticker) WHERE m.series LIKE '%GAME' "
+        "AND m.result IN ('yes','no') AND k.kickoff_ts IS NOT NULL").fetchall()
+    games = {}
+    for ev, t, sub, home, away, res, ko in rows:
+        g = games.setdefault(ev, {"ev": ev, "kickoff": ko, "home": home, "away": away, "legs": []})
+        g["legs"].append((t, sub, res))
+    return list(games.values())
+
+
 # ── build ─────────────────────────────────────────────────────────────────────
 
 FEATURES = list(_State().query({"home_key": "_", "away_key": "_", "league": "_",
@@ -222,8 +378,20 @@ def load_kalshi_legs(hcon):
     return games
 
 
-def build(scon, hcon, out_path=OUT_DB):
+def build(scon, hcon, out_path=OUT_DB, fill=True):
     matches = load_matches(scon)
+    for m in matches:
+        m["source"] = "soccer.db"
+    fill_info = {}
+    if fill:
+        index = TeamIndex(team_registry(matches))
+        espn = load_espn_cache()
+        kal = load_kalshi_settled(hcon)
+        extra = extra_matches(matches, espn, kal, index)
+        fill_info = {"espn_results_on_disk": len(espn), "kalshi_settled_games": len(kal),
+                     "added_from_espn": sum(1 for m in extra if m["source"] == "espn"),
+                     "added_from_kalshi": sum(1 for m in extra if m["source"] == "kalshi")}
+        matches += extra
     by_id = {m["id"]: m for m in matches}
 
     # Table A
@@ -259,17 +427,19 @@ def build(scon, hcon, out_path=OUT_DB):
     out = sqlite3.connect(out_path)
     fcols = ", ".join(f"{c} REAL" for c in FEATURES)
     out.execute(f"CREATE TABLE ds_matches (match_id TEXT PRIMARY KEY, league TEXT, kickoff INTEGER, "
-                f"split TEXT, target TEXT, p_book_h REAL, p_book_d REAL, p_book_a REAL, {fcols})")
+                f"split TEXT, source TEXT, target TEXT, p_book_h REAL, p_book_d REAL, "
+                f"p_book_a REAL, {fcols})")
     out.execute(f"CREATE TABLE ds_kalshi (event_ticker TEXT, ticker TEXT, match_id TEXT, "
                 f"league TEXT, kickoff INTEGER, entry_h INTEGER, side TEXT, bid INTEGER, "
                 f"ask INTEGER, mid REAL, won INTEGER, {fcols}, PRIMARY KEY (ticker, entry_h))")
-    ph = ", ".join("?" * (8 + len(FEATURES)))
+    ph = ", ".join("?" * (9 + len(FEATURES)))
     rows_a = []
     for m in matches:
         book = devig(*m["odds"]) or (None, None, None)
         f = feats[m["id"]]
-        rows_a.append((m["id"], m["league"], m["kickoff"], split_of(m["kickoff"]),
-                       outcome(m["hg"], m["ag"]), *book, *[f[c] for c in FEATURES]))
+        rows_a.append((m["id"], m["league"], m["kickoff"], split_of(m["kickoff"]), m["source"],
+                       m.get("res") or outcome(m["hg"], m["ag"]), *book,
+                       *[f[c] for c in FEATURES]))
     out.executemany(f"INSERT INTO ds_matches VALUES ({ph})", rows_a)
 
     rows_b = []
@@ -298,7 +468,7 @@ def build(scon, hcon, out_path=OUT_DB):
     phb = ", ".join("?" * (11 + len(FEATURES)))
     out.executemany(f"INSERT INTO ds_kalshi VALUES ({phb})", rows_b)
     out.commit()
-    return out, {"matches": len(matches), "kalshi_games": len(games),
+    return out, {**fill_info, "matches": len(matches), "kalshi_games": len(games),
                  "kalshi_joined": len(joined), "kalshi_unmatched": len(unmatched),
                  "kalshi_rows": len(rows_b), "unmatched_sample": sorted(unmatched)[:25]}
 

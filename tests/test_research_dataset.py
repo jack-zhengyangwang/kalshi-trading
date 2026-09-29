@@ -122,3 +122,74 @@ def test_join_kalshi_refuses_ambiguous():
              {"id": "z", "home": "IFK Göteborg", "away": "Halmstads BK",
               "kickoff": 1_000_000 + 20 * H}]
     assert ds.join_kalshi("Goteborg", "Halmstad", 1_000_000 + 10 * H, cands) is None
+
+
+# ── 0b: filling Jun–Sep results from ESPN and Kalshi ─────────────────────────
+
+def _espn(eid, date, home, away, hs, as_, status="STATUS_FULL_TIME"):
+    return {"id": eid, "date": date, "status": {"type": {"name": status}},
+            "competitions": [{"competitors": [
+                {"homeAway": "home", "team": {"displayName": home}, "score": hs},
+                {"homeAway": "away", "team": {"displayName": away}, "score": as_}]}]}
+
+
+def test_espn_results_use_the_90_minute_outcome():
+    games = ds.espn_results([
+        _espn("1", "2026-09-12T15:30Z", "IFK Göteborg", "Halmstads BK", "2", "1"),
+        _espn("2", "2026-09-12T15:30Z", "A", "B", "3", "2", "STATUS_FINAL_AET"),
+        _espn("3", "2026-09-12T15:30Z", "C", "D", "1", "1", "STATUS_FINAL_PEN"),
+        _espn("4", "2026-09-12T15:30Z", "E", "F", "0", "0", "STATUS_SCHEDULED"),
+    ])
+    by = {g["espn_id"]: g for g in games}
+    assert set(by) == {"1", "2", "3"}
+    assert by["1"]["res"] == "home" and by["1"]["hg"] == 2
+    assert by["2"]["res"] == "draw" and by["2"]["hg"] is None     # level after 90'
+    assert by["3"]["res"] == "draw"
+
+
+REG = [("IFK Göteborg", "goteborg", "Allsvenskan", 100),
+       ("Halmstads BK", "halmstad", "Allsvenskan", 100),
+       ("Nacional", "nacional_uru", "Uruguay", 100),
+       ("Club Nacional", "nacional_par", "Paraguay", 100),
+       ("Peñarol", "penarol", "Uruguay", 100)]
+
+
+def test_resolve_pair_finds_keys_and_their_shared_league():
+    idx = ds.TeamIndex(REG)
+    assert idx.resolve_pair("Goteborg", "Halmstad") == ("goteborg", "halmstad", "Allsvenskan")
+
+
+def test_resolve_pair_uses_the_opponent_to_pick_the_right_namesake():
+    idx = ds.TeamIndex(REG)
+    assert idx.resolve_pair("Nacional", "Penarol") == ("nacional_uru", "penarol", "Uruguay")
+
+
+def test_resolve_pair_refuses_unknown_teams():
+    idx = ds.TeamIndex(REG)
+    assert idx.resolve_pair("Goteborg", "Nowhere United") is None
+
+
+def test_state_accepts_a_result_without_goals():
+    m = _m("m1", "a", "b", 0, None, None)
+    m["res"] = "draw"
+    f = ds.build_features([m], [_q("q", "a", "b", m["known_at"] + 1)])["q"]
+    assert f["form_h"] == 1.0 and f["gf_h"] is None and f["seen_h"] == 1
+
+
+def test_kalshi_outcome_from_settled_legs():
+    legs = [("T1", "Goteborg", "no"), ("T2", "Tie", "yes"), ("T3", "Halmstad", "no")]
+    assert ds.kalshi_outcome(legs, "Goteborg", "Halmstad") == "draw"
+    legs = [("T1", "Goteborg", "yes"), ("T2", "Tie", "no"), ("T3", "Halmstad", "no")]
+    assert ds.kalshi_outcome(legs, "Goteborg", "Halmstad") == "home"
+    assert ds.kalshi_outcome(legs[:2], "Goteborg", "Halmstad") is None   # incomplete
+
+
+def test_extra_matches_skip_games_already_in_soccer_db():
+    idx = ds.TeamIndex(REG)
+    existing = [{"id": "x", "home_key": "goteborg", "away_key": "halmstad",
+                 "kickoff": 1_789_227_000}]
+    espn = ds.espn_results([_espn("1", "2026-09-12T15:30Z", "IFK Göteborg", "Halmstads BK",
+                                  "2", "1")])
+    assert ds.extra_matches(existing, espn, [], idx) == []
+    new = ds.extra_matches([], espn, [], idx)
+    assert len(new) == 1 and new[0]["league"] == "Allsvenskan" and new[0]["source"] == "espn"
