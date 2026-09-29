@@ -49,28 +49,33 @@ def main():
     a2.bar([0], [j], color=ORANGE, width=0.6)
     a2.text(0, n + 15, f"{n} Kalshi games\n(Jul–Sep, ESPN kickoff)", ha="center", fontsize=9.5,
             color=INK)
-    a2.text(0.36, j, f"← {j} have a soccer.db match", va="bottom", fontsize=9.5, color=ORANGE)
+    a2.text(0.36, j, f"← {j} joined\n   ({info['kalshi_rows']:,} leg × entry-time rows)",
+            va="center", fontsize=9.5, color=ORANGE)
     a2.set_xlim(-0.6, 1.4)
     a2.set_ylim(0, n * 1.3)
     a2.set_xticks([])
     a2.set_yticks([])
     a2.grid(axis="x", visible=False)
-    a2.set_title("Table B: the gap", fontsize=11.5)
+    a2.set_title("Table B: Kalshi games joined", fontsize=11.5)
 
     b = info["baselines"]
-    labels = ["base rates", "bookmaker\n(margin removed)"]
-    vals = [b["A_test"]["brier_base_rate"], b["A_test"]["brier_bookmaker"]]
-    a3.barh([0, 1], vals, color=[MUTED, BLUE], height=0.55)
-    for i, v in enumerate(vals):
+    rows = [("A: base rates", b["A_test"]["brier_base_rate"], MUTED),
+            ("A: Pinnacle closing", b["A_test"]["brier_bookmaker"], BLUE),
+            ("B: base rates", b["B_24h"]["brier_base_rate"], MUTED),
+            ("B: Kalshi mid, 24h", b["B_24h"]["brier_kalshi_mid"], ORANGE)]
+    for i, (lab, v, c) in enumerate(rows):
+        a3.barh(i, v, color=c, height=0.6)
         a3.text(v + 0.0005, i, f"{v:.4f}", va="center", fontsize=10, color=INK)
-    a3.set_yticks([0, 1])
-    a3.set_yticklabels(labels, color=INK)
-    a3.set_xlim(0.19, 0.222)
+    a3.set_yticks(range(len(rows)))
+    a3.set_yticklabels([r[0] for r in rows], color=INK)
+    a3.invert_yaxis()
+    a3.set_xlim(0.19, 0.224)
     a3.set_xlabel("Leg Brier score (lower = better)")
     a3.grid(axis="y", visible=False)
-    a3.set_title(f"Bar to beat: Jan–May 2026 ({b['A_test']['matches']:,} matches)", fontsize=11.5)
+    a3.set_title(f"Bars to beat (A: Jan–May 2026, {b['A_test']['matches']:,} matches;\n"
+                 f"B: Jul–Sep 2026, {b['B_24h']['legs']:,} legs)", fontsize=10.5)
 
-    fig.suptitle("v2 Phase 0: plenty to learn from, almost nothing to test against Kalshi yet",
+    fig.suptitle("v2 Phase 0: the dataset — 55k matches to learn from, 457 Kalshi games to test on",
                  x=0.01, ha="left", fontsize=14, fontweight="bold", color=INK)
     fig.tight_layout()
     save(fig, "17_phase0_dataset.png")

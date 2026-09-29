@@ -85,13 +85,13 @@ where a real edge would first show up.**
   - Table B: final exam, Jul–Sep 2026
 - **Output:** `data/research/v2_dataset.db` (tables `ds_matches`, `ds_kalshi`), regenerable and gitignored.
 - **First bars to beat:** leg Brier score of the base rates, the bookmaker (Table A) and Kalshi (Table B).
-- **Open check:** the data lake keeps "the first bookmaker per fixture". Which bookmaker, and opening vs closing odds, are unknown.
+- **Checked:** the odds are "96%+ Pinnacle closing" (data lake data dictionary), a hard benchmark.
 
 ## Phase 0 status ([Finding 08](findings/08_DATASET.md))
 
-- ✅ Table A built: 54,254 matches, 35,693 with odds. Bar to beat (Jan–May 2026): bookmaker leg Brier **0.1981** vs base rates 0.2156.
-- ❌ Table B: only 12 of 967 Kalshi games join, because `soccer.db` has almost no results after May 2026.
-- **Next:** fill Jun–Sep results from the ESPN cache (already on disk), with Kalshi's settled markets as a fallback, then re-join.
+- ✅ **Phase 0 done.** Table A: 55,667 matches; the bar is **Pinnacle closing** leg Brier 0.1981 (Jan–May 2026).
+- ✅ Table B: 457 of 967 Kalshi games (3,855 rows); Kalshi mid at 24h scores 0.1975. The Jun–Sep gap was filled from the ESPN cache and Kalshi settlements, both already on disk.
+- **Next: Phase 1 baselines.**
 
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
