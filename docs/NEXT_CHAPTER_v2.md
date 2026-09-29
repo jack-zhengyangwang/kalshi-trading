@@ -93,6 +93,56 @@ where a real edge would first show up.**
 - ✅ Table B: 457 of 967 Kalshi games (3,855 rows); Kalshi mid at 24h scores 0.1975. The Jun–Sep gap was filled from the ESPN cache and Kalshi settlements, both already on disk.
 - **Next: Phase 1 baselines.**
 
+## Phase 1 protocol (fixed 2026-09-29, before any model is trained)
+
+**Models** (each predicts home / draw / away):
+
+| | Model | Inputs | Chosen on the tune set (2025) |
+|---|---|---|---|
+| M0 | League base rates | lg_home, lg_draw | nothing |
+| M1 | Elo, recalibrated | multinomial logistic regression on elo_diff, lg_home, lg_draw | nothing |
+| M2 | All features, linear | multinomial logistic regression; missing values filled with the train median plus a missing-value flag; standardised | C ∈ {0.01, 0.1, 1} |
+| M3 | All features, trees | HistGradientBoosting (handles missing values natively) | learning rate ∈ {0.03, 0.1}, max leaf nodes ∈ {15, 31} |
+
+- **Fit on train (2021–2024), pick settings by 3-way log loss on tune (2025), refit on train + tune.**
+- **Scored once on:**
+  - Table A test: Jan–May 2026 rows with Pinnacle odds
+  - Table B: Kalshi legs at 24h (6h and 1h reported too)
+- **Gate 1 (more accurate?):** leg Brier of model minus market, with a 99% interval (bootstrap by game). Passes if the whole interval is **below 0**.
+- **Gate 2 (adds information?):** per leg, a logistic regression of won on 1 + logit(market) + logit(model). Passes if the model's coefficient has a **99% interval above 0**.
+- 3 models × 2 tables, so everything uses 99% intervals.
+- Phase 1 involves **no betting**. It's about accuracy and information only.
+
+## Phase 1 result ([Finding 09](findings/09_PHASE1_BASELINES.md))
+
+- ❌ **0 of 4 models pass either gate.** Best: M2 (all features, linear), Brier 0.2027 vs Pinnacle 0.1981 and 0.2014 vs Kalshi 0.1975.
+- Gate 2 against Pinnacle is a confident no (narrow intervals). Against Kalshi it's undecided (wide intervals, small Table B).
+- **Options:** Phase 2 (split by league tier and entry time), a bigger Table B (droplet), or new information sources (paused).
+
+## Phase 2 protocol (fixed 2026-09-29, before any Phase 2 run)
+
+**Question:** is the market weaker somewhere: in some league tiers, or earlier before kickoff?
+
+- **Model:** M2 (all features, logistic regression), **C = 0.01 frozen** from Phase 1, refit on train + tune. No new model search.
+- **League tiers** (from `soccer.db` league names):
+  - **T1 top:** EPL, LaLiga, SerieA, Bundesliga, Ligue1, UCL
+  - **T3 lower divisions:** Championship, Bundesliga2, BrasileiroB, BrasileiroC, ArgNacionalB, SerieB, SerieC, LaLiga2, Ligue2, and any league whose name marks a second or third tier
+  - **T2 everything else** (other first divisions)
+- **Groups tested:**
+  - Table A test (vs Pinnacle closing): T1, T2, T3
+  - Table B (vs Kalshi): T1, T2, T3 × entry 24h / 6h / 1h
+- **Gate 2 in each group:** the model's coefficient must have a 99% interval above 0 (bootstrap by game). Groups with fewer than 150 legs are reported but not judged.
+- **Counts as a signal only if** a Table B tier passes at **≥ 2 entry times**. One pass among 12 groups is expected by chance.
+- **Where it runs:** on the droplet, with its full Kalshi store, which gives a bigger Table B. `soccer.db` is copied up from the laptop. The kickoff table and caches are rebuilt there.
+- Code is smoke-tested on the laptop using the **tune split only**, so the test sets are untouched before the real run.
+
+## Phase 2 result ([Finding 10](findings/10_PHASE2_TIERS.md), full droplet data)
+
+- ❌ **No signal:** 0 of 12 groups (3 tiers × Pinnacle + 3 entry times on Kalshi) pass Gate 2, and the market is more accurate in all 12.
+- Table B grew to 1,363 games (~3,400 legs per entry time). Lower divisions aren't easier; entry time doesn't matter.
+- T1 on Kalshi shows +0.4 at every entry time, but it's the same ~188 games, every interval includes 0, and it's −0.29 against Pinnacle.
+- **Public-data models don't beat or add to this market.** What's left: new information sources (paused), or close v2.
+
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
 - Idea checked: "the model picks the winner and the stake; enter at any price".
