@@ -93,6 +93,26 @@ where a real edge would first show up.**
 - ✅ Table B: 457 of 967 Kalshi games (3,855 rows); Kalshi mid at 24h scores 0.1975. The Jun–Sep gap was filled from the ESPN cache and Kalshi settlements, both already on disk.
 - **Next: Phase 1 baselines.**
 
+## Phase 1 protocol (fixed 2026-09-29, before any model is trained)
+
+**Models** (each predicts home / draw / away):
+
+| | Model | Inputs | Chosen on the tune set (2025) |
+|---|---|---|---|
+| M0 | League base rates | lg_home, lg_draw | nothing |
+| M1 | Elo, recalibrated | multinomial logistic regression on elo_diff, lg_home, lg_draw | nothing |
+| M2 | All features, linear | multinomial logistic regression; missing values filled with the train median plus a missing-value flag; standardised | C ∈ {0.01, 0.1, 1} |
+| M3 | All features, trees | HistGradientBoosting (handles missing values natively) | learning rate ∈ {0.03, 0.1}, max leaf nodes ∈ {15, 31} |
+
+- **Fit on train (2021–2024), pick settings by 3-way log loss on tune (2025), refit on train + tune.**
+- **Scored once on:**
+  - Table A test: Jan–May 2026 rows with Pinnacle odds
+  - Table B: Kalshi legs at 24h (6h and 1h reported too)
+- **Gate 1 (more accurate?):** leg Brier of model minus market, with a 99% interval (bootstrap by game). Passes if the whole interval is **below 0**.
+- **Gate 2 (adds information?):** per leg, a logistic regression of won on 1 + logit(market) + logit(model). Passes if the model's coefficient has a **99% interval above 0**.
+- 3 models × 2 tables, so everything uses 99% intervals.
+- Phase 1 involves **no betting**. It's about accuracy and information only.
+
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
 - Idea checked: "the model picks the winner and the stake; enter at any price".
