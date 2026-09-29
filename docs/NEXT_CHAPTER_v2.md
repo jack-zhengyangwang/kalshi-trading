@@ -49,9 +49,43 @@ where a real edge would first show up.**
 
 ## Decisions for Jack before Phase 0
 
-1. **Data:** ✅ **use the data already collected; no new collection** (Jack, 2026-09-28). To confirm: does that include the droplet's store (~5× the local copy, also already collected)?
+1. **Data:** ✅ **laptop data only for now; no new collection** (Jack, 2026-09-28). The droplet's Kalshi store (~5× more Kalshi games) can be added to Table B later, if the model looks promising on Table A. Work happens on branch `feat/v2-dataset`.
 2. **Bookmaker odds:** probably the strongest single predictor, and also the strongest benchmark. **Restart forward collection (#3), or find a historical source?**
 3. **LLM as a predictor:** the desk-manager setup could produce a p̂ per game as one more input. Worth testing in Phase 1?
+
+## Phase 0 in detail: the dataset (laptop data)
+
+**One model, two tables:**
+
+```
+ TABLE A: learn + practice exam              TABLE B: final exam
+ soccer.db, 2021 → 2026, ~54k matches        Kalshi legs, Jul → Sep 2026 (~2,200 games)
+ features known BEFORE kickoff − 1h          same features, as of each entry time (24h / 6h / 1h)
+ target: home / draw / away                  target: did this leg win
+ benchmark: bookmaker odds (margin removed)  benchmark: Kalshi bid / ask / mid
+```
+
+- **Features are rebuilt in one forward pass over `matches`**, not read from `facts`:
+  - `facts` stamps each value at the *end* of the match it came from (kickoff + 2h), holding the state *before* that match.
+  - So a strict "known before the cutoff" rule would always be **one match stale**. Safe, but it loses the latest result.
+  - Rebuilding is point-in-time by construction for **any** cutoff, and fully tested.
+- **Features:**
+  - Elo (both teams, difference, implied home probability)
+  - matches seen, form (points per game, last 5)
+  - goals and shots for/against (last 5)
+  - home win rate at home / away win rate away
+  - rest days
+  - head-to-head (games, home side's win rate)
+  - league draw rate and home win rate over the previous 365 days
+- **Not features:** bookmaker odds and Kalshi prices. They are the benchmarks.
+- **No-peek rule:** a match updates the state only once its result is known (`known_at` < cutoff). Ties go to the query, so a result known exactly at the cutoff is excluded. Tested.
+- **Kalshi → soccer.db join:** same team-name matcher as the kickoff table, kickoff within ±36h. Unmatched and ambiguous games are counted and reported, never silently dropped.
+- **Splits (fixed now):**
+  - Table A: train 2021–2024 · tune 2025 · test Jan–May 2026 (bookmaker odds end 2026-05-13)
+  - Table B: final exam, Jul–Sep 2026
+- **Output:** `data/research/v2_dataset.db` (tables `ds_matches`, `ds_kalshi`), regenerable and gitignored.
+- **First bars to beat:** leg Brier score of the base rates, the bookmaker (Table A) and Kalshi (Table B).
+- **Open check:** the data lake keeps "the first bookmaker per fixture". Which bookmaker, and opening vs closing odds, are unknown.
 
 ## Settled: price-blind betting doesn't work ([Finding 07](findings/07_PRICE_VS_MODEL.md))
 
