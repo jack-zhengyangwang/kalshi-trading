@@ -1,0 +1,43 @@
+{
+ "games": 331,
+ "longshot_no": {
+  "threshold": 5,
+  "entry_h": 6,
+  "n_trades": 0,
+  "n_games": 0,
+  "mean": null,
+  "ci95": null,
+  "ci99": null,
+  "random_benchmark": null,
+  "capital_per_contract_c": null,
+  "passes": false
+ },
+ "longshot_yes": {
+  "n_trades": 40,
+  "n_games": 40,
+  "mean": -7.825,
+  "ci95": [
+   -14.85,
+   1.425
+  ],
+  "ci99": [
+   -16.1,
+   5.3
+  ],
+  "random_benchmark": {
+   "n_trades": 40,
+   "n_games": 40,
+   "mean": -3.225,
+   "ci95": [
+    -14.35,
+    7.425
+   ],
+   "ci99": [
+    -18.75,
+    10.825
+   ]
+  },
+  "capital_per_contract_c": 14.07,
+  "passes": false
+ }
+}
