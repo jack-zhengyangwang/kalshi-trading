@@ -81,3 +81,10 @@ these rules) and Batch 1's test (Sep 1–14, different rules). No rule below was
 
 - Cup series label legs `Reg Time: <team>` (about 2% of legs). Batch 2 strips the prefix and redoes home / away / tie, so those games aren't silently dropped. Batch 1's loader is unchanged.
 - Big-club names on the laptop DB match the fixed list exactly. Look-alikes that are **not** big clubs: Inter Toronto, Inter Bratislava, Inter Milano U23, Juventus Next Gen, Liverpool M, Paris FC, Alcione Milano. The same check is re-run on the droplet snapshot before `develop`.
+
+## Added 2026-10-18, before any run (droplet snapshot, team names and series only)
+
+- Snapshot: 7,622 settled games, last close 2026-09-29.
+- **H1 skips women's series** (`KXUCLWGAME`, `KXSERIEAWGAME`, `KXEREDIVISIEWGAME`, `KXFIFAWGAME`). The women's sides appear as "Bayern", "Inter Milano" and also "PSG". The hypothesis is about the famous men's club brands.
+- More look-alikes that are **not** big clubs: Bayern (women), Inter Milano (women), Paris (Paris FC in Ligue 1), Real Madrid Castilla / C, Barcelona Atletic, Atletico Madrid B, Esp. Barcelona B, United of Manchester, Inter Turku, LAC Inter.
+- Pre-season friendlies (`KXCLUBFGAME`) are included: same clubs, same fans.
