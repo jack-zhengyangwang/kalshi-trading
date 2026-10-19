@@ -88,3 +88,5 @@ these rules) and Batch 1's test (Sep 1–14, different rules). No rule below was
 - **H1 skips women's series** (`KXUCLWGAME`, `KXSERIEAWGAME`, `KXEREDIVISIEWGAME`, `KXFIFAWGAME`). The women's sides appear as "Bayern", "Inter Milano" and also "PSG". The hypothesis is about the famous men's club brands.
 - More look-alikes that are **not** big clubs: Bayern (women), Inter Milano (women), Paris (Paris FC in Ligue 1), Real Madrid Castilla / C, Barcelona Atletic, Atletico Madrid B, Esp. Barcelona B, United of Manchester, Inter Turku, LAC Inter.
 - Pre-season friendlies (`KXCLUBFGAME`) are included: same clubs, same fans.
+
+**Results:** [12_BATCH2_RESULTS.md](12_BATCH2_RESULTS.md).
