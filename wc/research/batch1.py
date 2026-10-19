@@ -339,10 +339,10 @@ def report_maker(games, mode, frozen=None):
 
 # ── data ──────────────────────────────────────────────────────────────────────
 
-def load_games(con, period):
+def load_games(con, period, periods=PERIODS):
     """Games whose every leg settled yes/no inside `period`, with an ESPN
     kickoff, and their hourly quotes before kickoff."""
-    lo, hi = PERIODS[period]
+    lo, hi = periods[period]
     marks = ",".join("?" * len(ESPN_BACKED))
     rows = con.execute(
         "SELECT m.event_ticker, m.ticker, m.result, m.close_time, k.kickoff_ts, "
@@ -351,9 +351,10 @@ def load_games(con, period):
         f"WHERE m.series LIKE '%GAME' AND k.status IN ({marks})",
         ESPN_BACKED).fetchall()
     by_ev = defaultdict(list)
-    roles = {}
+    roles, subs = {}, {}
     for ev, t, res, close, ko, sub, home, away in rows:
         by_ev[ev].append((t, res, close, ko))
+        subs[t] = sub
         roles[t] = ("tie" if sub == "Tie" else "home" if sub == home
                     else "away" if sub == away else None)
     games = []
@@ -373,7 +374,8 @@ def load_games(con, period):
         games.append({"ev": ev, "kickoff": ko, "legs": bars, "lows": lows,
                       "fee_types": {t: fee_type(t.split("-")[0]) for t, _, _, _ in legs},
                       "results": {t: res for t, res, _, _ in legs},
-                      "roles": {t: roles[t] for t, _, _, _ in legs}})
+                      "roles": {t: roles[t] for t, _, _, _ in legs},
+                      "subs": {t: subs[t] for t, _, _, _ in legs}})
     return games
 
 

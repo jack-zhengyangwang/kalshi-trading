@@ -1,0 +1,77 @@
+{
+ "espn_results_on_disk": 10539,
+ "kalshi_settled_games": 7458,
+ "added_from_espn": 1340,
+ "added_from_kalshi": 288,
+ "matches": 55882,
+ "kalshi_games": 4648,
+ "kalshi_joined": 1363,
+ "kalshi_unmatched": 3285,
+ "kalshi_rows": 10123,
+ "unmatched_sample": [
+  "KXAFCCLGAME-26AUG11ADUCON",
+  "KXAFCCLGAME-26AUG11GAWGAM",
+  "KXAFCCLGAME-26AUG11JAZITJ",
+  "KXAFCCLGAME-26AUG11PAKHUI",
+  "KXAFCCLGAME-26SEP14AASPAK",
+  "KXAFCCLGAME-26SEP14ESTSAD",
+  "KXAFCCLGAME-26SEP14QADWAS",
+  "KXAFCCLGAME-26SEP14SHMITJ",
+  "KXAFCCLGAME-26SEP15AINALN",
+  "KXAFCCLGAME-26SEP15BJGPOH",
+  "KXAFCCLGAME-26SEP15DAJKYO",
+  "KXAFCCLGAME-26SEP15GAMCON",
+  "KXAFCCLGAME-26SEP15HILALG",
+  "KXAFCCLGAME-26SEP15JOHBUR",
+  "KXAFCCLGAME-26SEP15KASNUJ",
+  "KXAFCCLGAME-26SEP15RATSHP",
+  "KXAFCCLGAME-26SEP16JEOREY",
+  "KXAFCCLGAME-26SEP16PORVIK",
+  "KXAFCONGAME-26SEP24CIVGHA",
+  "KXAFCONGAME-26SEP24CMRCOM",
+  "KXAFCONGAME-26SEP24CODGEQ",
+  "KXAFCONGAME-26SEP24LBABOT",
+  "KXAFCONGAME-26SEP24MRTCAF",
+  "KXAFCONGAME-26SEP24NAMCOG",
+  "KXAFCONGAME-26SEP24SLEZIM"
+ ],
+ "splits": {
+  "kalshi_period": 2069,
+  "test": 4756,
+  "train": 38099,
+  "tune": 10958
+ },
+ "with_bookmaker_odds": 35693,
+ "baselines": {
+  "A_train": {
+   "matches": 27018,
+   "brier_bookmaker": 0.19751387703827136,
+   "brier_base_rate": 0.21672918908532893
+  },
+  "A_tune": {
+   "matches": 6681,
+   "brier_bookmaker": 0.19867257651349127,
+   "brier_base_rate": 0.21543942447588235
+  },
+  "A_test": {
+   "matches": 1954,
+   "brier_bookmaker": 0.19813843560795155,
+   "brier_base_rate": 0.21557690723171793
+  },
+  "B_24h": {
+   "legs": 3326,
+   "brier_kalshi_mid": 0.20306496542393265,
+   "brier_base_rate": 0.21753137980742102
+  },
+  "B_6h": {
+   "legs": 3395,
+   "brier_kalshi_mid": 0.20359229013254787,
+   "brier_base_rate": 0.21766629996909864
+  },
+  "B_1h": {
+   "legs": 3402,
+   "brier_kalshi_mid": 0.20348731628453853,
+   "brier_base_rate": 0.21756605883266034
+  }
+ }
+}
