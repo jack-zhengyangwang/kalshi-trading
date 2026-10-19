@@ -115,3 +115,11 @@ def test_reg_time_prefix_is_stripped_and_roles_redone():
                        "T": ("Arsenal", "Fulham")})
     assert g["roles"] == {"H": "home", "A": "away", "T": "tie"}
     assert [t["ticker"] for t in b2.h1_trades(g, 24)] == ["H"]
+
+
+def test_h1_skips_womens_series():
+    g = _game({"KXUCLWGAME-X-PSG": (54, 56), "KXUCLWGAME-X-ARS": (24, 26)},
+              {"KXUCLWGAME-X-PSG": "home", "KXUCLWGAME-X-ARS": "away"},
+              {"KXUCLWGAME-X-PSG": "yes", "KXUCLWGAME-X-ARS": "no"},
+              subs={"KXUCLWGAME-X-PSG": "PSG", "KXUCLWGAME-X-ARS": "Arsenal"})
+    assert b2.h1_trades(g, 24) == []

@@ -37,6 +37,9 @@ PERIODS = {
 BIG_CLUBS = {"Real Madrid", "Barcelona", "Manchester City", "Manchester United", "Liverpool",
              "Arsenal", "Chelsea", "Bayern Munich", "PSG", "Juventus", "Inter", "Milan"}
 
+# Women's competitions: same club names, different teams and following.
+WOMEN_SERIES = {"KXEREDIVISIEWGAME", "KXFIFAWGAME", "KXSERIEAWGAME", "KXUCLWGAME"}
+
 COMPLETED = {"STATUS_FULL_TIME", "STATUS_FINAL_PEN", "STATUS_FINAL_AET"}
 NOT_90_MIN = {"STATUS_FINAL_PEN", "STATUS_FINAL_AET"}
 LOOKBACK = 14 * DAY
@@ -68,7 +71,8 @@ def _keep(trades):
 
 def h1_trades(game, entry_h):
     return _keep(bet(game, t, "no", entry_h) for t, sub in game["subs"].items()
-                 if game["roles"].get(t) in ("home", "away") and sub in BIG_CLUBS)
+                 if game["roles"].get(t) in ("home", "away") and sub in BIG_CLUBS
+                 and t.split("-")[0] not in WOMEN_SERIES)
 
 
 # ── H2 overreaction ───────────────────────────────────────────────────────────

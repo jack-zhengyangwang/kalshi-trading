@@ -1,0 +1,443 @@
+{
+ "games": 2949,
+ "h1": {
+  "grid": {
+   "entry24": {
+    "entry_h": 24,
+    "n_trades": 76,
+    "n_games": 69,
+    "mean": -1.947,
+    "ci95": [
+     -11.39,
+     7.346
+    ],
+    "ci99": [
+     -13.986,
+     10.72
+    ],
+    "random_benchmark": {
+     "n_trades": 76,
+     "n_games": 69,
+     "mean": -9.079,
+     "ci95": [
+      -17.701,
+      -0.486
+     ],
+     "ci99": [
+      -20.447,
+      1.923
+     ]
+    },
+    "capital_per_contract_c": 42.12,
+    "bias_before_costs": {
+     "n_trades": 76,
+     "n_games": 69,
+     "mean": 0.77,
+     "ci95": [
+      -8.688,
+      10.026
+     ],
+     "ci99": [
+      -11.257,
+      13.48
+     ]
+    }
+   },
+   "entry6": {
+    "entry_h": 6,
+    "n_trades": 80,
+    "n_games": 73,
+    "mean": -1.637,
+    "ci95": [
+     -10.62,
+     7.744
+    ],
+    "ci99": [
+     -14.114,
+     11.026
+    ],
+    "random_benchmark": {
+     "n_trades": 80,
+     "n_games": 73,
+     "mean": 2.962,
+     "ci95": [
+      -5.772,
+      11.329
+     ],
+     "ci99": [
+      -8.392,
+      13.317
+     ]
+    },
+    "capital_per_contract_c": 40.96,
+    "bias_before_costs": {
+     "n_trades": 80,
+     "n_games": 73,
+     "mean": 0.856,
+     "ci95": [
+      -8.171,
+      10.204
+     ],
+     "ci99": [
+      -11.665,
+      13.481
+     ]
+    }
+   }
+  },
+  "selected": "entry6"
+ },
+ "h2": {
+  "grid": {
+   "D2": {
+    "D": 2,
+    "entry_h": 24,
+    "n_trades": 1468,
+    "n_games": 1179,
+    "mean": -2.615,
+    "ci95": [
+     -4.952,
+     -0.431
+    ],
+    "ci99": [
+     -5.764,
+     0.455
+    ],
+    "random_benchmark": {
+     "n_trades": 1468,
+     "n_games": 1179,
+     "mean": -5.554,
+     "ci95": [
+      -7.874,
+      -3.276
+     ],
+     "ci99": [
+      -8.499,
+      -2.5
+     ]
+    },
+    "capital_per_contract_c": 48.12,
+    "bias_before_costs": {
+     "n_trades": 1468,
+     "n_games": 1179,
+     "mean": 0.362,
+     "ci95": [
+      -1.986,
+      2.535
+     ],
+     "ci99": [
+      -2.77,
+      3.413
+     ]
+    }
+   },
+   "D3": {
+    "D": 3,
+    "entry_h": 24,
+    "n_trades": 635,
+    "n_games": 560,
+    "mean": -2.143,
+    "ci95": [
+     -5.774,
+     1.346
+    ],
+    "ci99": [
+     -6.877,
+     2.543
+    ],
+    "random_benchmark": {
+     "n_trades": 635,
+     "n_games": 560,
+     "mean": -0.192,
+     "ci95": [
+      -3.701,
+      3.503
+     ],
+     "ci99": [
+      -4.736,
+      4.756
+     ]
+    },
+    "capital_per_contract_c": 47.55,
+    "bias_before_costs": {
+     "n_trades": 635,
+     "n_games": 560,
+     "mean": 0.817,
+     "ci95": [
+      -2.819,
+      4.286
+     ],
+     "ci99": [
+      -3.995,
+      5.524
+     ]
+    }
+   }
+  },
+  "selected": "D3"
+ },
+ "h3": {
+  "grid": {
+   "entry24_mid0": {
+    "entry_h": 24,
+    "min_mid": 0,
+    "n_trades": 2395,
+    "n_games": 2395,
+    "mean": -3.402,
+    "ci95": [
+     -5.164,
+     -1.679
+    ],
+    "ci99": [
+     -5.707,
+     -1.286
+    ],
+    "random_benchmark": {
+     "n_trades": 2395,
+     "n_games": 2395,
+     "mean": -3.132,
+     "ci95": [
+      -4.853,
+      -1.446
+     ],
+     "ci99": [
+      -5.39,
+      -0.924
+     ]
+    },
+    "capital_per_contract_c": 25.66,
+    "bias_before_costs": {
+     "n_trades": 2395,
+     "n_games": 2395,
+     "mean": -0.303,
+     "ci95": [
+      -2.081,
+      1.422
+     ],
+     "ci99": [
+      -2.608,
+      1.855
+     ]
+    }
+   },
+   "entry24_mid25": {
+    "entry_h": 24,
+    "min_mid": 25,
+    "n_trades": 1304,
+    "n_games": 1304,
+    "mean": -4.055,
+    "ci95": [
+     -6.384,
+     -1.543
+    ],
+    "ci99": [
+     -7.02,
+     -0.733
+    ],
+    "random_benchmark": {
+     "n_trades": 1304,
+     "n_games": 1304,
+     "mean": -4.503,
+     "ci95": [
+      -7.039,
+      -1.756
+     ],
+     "ci99": [
+      -7.784,
+      -0.804
+     ]
+    },
+    "capital_per_contract_c": 29.43,
+    "bias_before_costs": {
+     "n_trades": 1304,
+     "n_games": 1304,
+     "mean": -0.865,
+     "ci95": [
+      -3.181,
+      1.658
+     ],
+     "ci99": [
+      -3.839,
+      2.464
+     ]
+    }
+   },
+   "entry6_mid0": {
+    "entry_h": 6,
+    "min_mid": 0,
+    "n_trades": 2582,
+    "n_games": 2582,
+    "mean": -2.901,
+    "ci95": [
+     -4.498,
+     -1.205
+    ],
+    "ci99": [
+     -5.031,
+     -0.708
+    ],
+    "random_benchmark": {
+     "n_trades": 2582,
+     "n_games": 2582,
+     "mean": -3.608,
+     "ci95": [
+      -5.215,
+      -1.919
+     ],
+     "ci99": [
+      -6.0,
+      -1.425
+     ]
+    },
+    "capital_per_contract_c": 25.24,
+    "bias_before_costs": {
+     "n_trades": 2582,
+     "n_games": 2582,
+     "mean": -0.219,
+     "ci95": [
+      -1.818,
+      1.478
+     ],
+     "ci99": [
+      -2.341,
+      1.973
+     ]
+    }
+   },
+   "entry6_mid25": {
+    "entry_h": 6,
+    "min_mid": 25,
+    "n_trades": 1386,
+    "n_games": 1386,
+    "mean": -2.519,
+    "ci95": [
+     -4.854,
+     0.048
+    ],
+    "ci99": [
+     -5.575,
+     0.667
+    ],
+    "random_benchmark": {
+     "n_trades": 1386,
+     "n_games": 1386,
+     "mean": -1.712,
+     "ci95": [
+      -4.161,
+      0.668
+     ],
+     "ci99": [
+      -4.999,
+      1.483
+     ]
+    },
+    "capital_per_contract_c": 29.16,
+    "bias_before_costs": {
+     "n_trades": 1386,
+     "n_games": 1386,
+     "mean": 0.241,
+     "ci95": [
+      -2.102,
+      2.786
+     ],
+     "ci99": [
+      -2.821,
+      3.42
+     ]
+    }
+   }
+  },
+  "selected": "entry6_mid25"
+ },
+ "h4": {
+  "grid": {
+   "top25": {
+    "top_share": 0.25,
+    "min_volume": 2128,
+    "entry_h": 24,
+    "n_trades": 696,
+    "n_games": 696,
+    "mean": -0.447,
+    "ci95": [
+     -3.991,
+     3.013
+    ],
+    "ci99": [
+     -5.125,
+     4.01
+    ],
+    "random_benchmark": {
+     "n_trades": 696,
+     "n_games": 696,
+     "mean": -2.716,
+     "ci95": [
+      -5.94,
+      0.494
+     ],
+     "ci99": [
+      -7.023,
+      1.527
+     ]
+    },
+    "capital_per_contract_c": 45.33,
+    "bias_before_costs": {
+     "n_trades": 696,
+     "n_games": 696,
+     "mean": 2.152,
+     "ci95": [
+      -1.402,
+      5.632
+     ],
+     "ci99": [
+      -2.557,
+      6.631
+     ]
+    }
+   },
+   "top10": {
+    "top_share": 0.1,
+    "min_volume": 9774,
+    "entry_h": 24,
+    "n_trades": 272,
+    "n_games": 272,
+    "mean": 0.456,
+    "ci95": [
+     -5.261,
+     6.088
+    ],
+    "ci99": [
+     -6.463,
+     7.577
+    ],
+    "random_benchmark": {
+     "n_trades": 272,
+     "n_games": 272,
+     "mean": -1.629,
+     "ci95": [
+      -7.261,
+      4.04
+     ],
+     "ci99": [
+      -8.511,
+      5.915
+     ]
+    },
+    "capital_per_contract_c": 45.02,
+    "bias_before_costs": {
+     "n_trades": 272,
+     "n_games": 272,
+     "mean": 2.932,
+     "ci95": [
+      -2.772,
+      8.55
+     ],
+     "ci99": [
+      -3.989,
+      10.024
+     ]
+    }
+   }
+  },
+  "selected": "top10"
+ }
+}
