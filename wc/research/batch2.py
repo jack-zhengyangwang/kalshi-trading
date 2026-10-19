@@ -5,6 +5,8 @@ executes them.
     python -m wc.research.batch2 names      # big-club spelling check (team names only)
     python -m wc.research.batch2 develop    # grids on develop -> batch2_frozen.json
     python -m wc.research.batch2 test       # frozen settings on test, once
+    python -m wc.research.batch2 confirm --db data/droplet/history_snapshot_1019.db
+                                            # same frozen settings, games from Sep 16, once
 
 Runs on the droplet snapshot copied to data/droplet/. Prices in integer cents.
 """
@@ -33,6 +35,10 @@ PERIODS = {
     "develop": (0, b1._day_end(2026, 8, 31)),
     "test": (b1._day_end(2026, 8, 31) + 1, 2 ** 62),
 }
+# Confirmation run (pre-reg addendum 2026-10-19): games kicking off on or after
+# Sep 16, so even a 24h entry falls after the backfill's last bar (Sep 14 14:00)
+# plus its 6h staleness window, and no game can overlap the first test.
+CONFIRM_FROM = b1._day_end(2026, 9, 15) + 1
 
 BIG_CLUBS = {"Real Madrid", "Barcelona", "Manchester City", "Manchester United", "Liverpool",
              "Arsenal", "Chelsea", "Bayern Munich", "PSG", "Juventus", "Inter", "Milan"}
@@ -255,8 +261,39 @@ def clean_roles(game, teams):
                                 else "away" if sub == away else None)
 
 
+def hourly_from_snapshots(rows):
+    """Collector rows [(ts, bid, ask, cumulative volume)] -> {hour: (bid, ask,
+    volume in that hour)}. Hour H is the last snapshot in (H - 1h, H], the same
+    convention as the hourly backfill bars; volume is the change in the
+    running total since the previous hour seen."""
+    last = {}
+    for ts, bid, ask, cum in sorted(rows):
+        last[-(-ts // H) * H] = (bid, ask, cum)
+    out, prev = {}, 0
+    for h in sorted(last):
+        bid, ask, cum = last[h]
+        cum = cum if cum is not None else prev
+        out[h] = (bid, ask, max(0, cum - prev))
+        prev = cum
+    return out
+
+
+def add_collector_bars(game, rows_by_ticker):
+    """Fill hours the backfill doesn't have from the collector's 5-minute
+    snapshots. Backfill bars are never overwritten."""
+    for t, rows in rows_by_ticker.items():
+        bars, vol = game["legs"].setdefault(t, {}), game["vol"].setdefault(t, {})
+        for h, (bid, ask, v) in hourly_from_snapshots(rows).items():
+            if h < game["kickoff"] and h not in bars:
+                bars[h] = (bid, ask)
+                vol[h] = v
+
+
 def load(con, period):
-    games = b1.load_games(con, period, PERIODS)
+    if period == "confirm":
+        games = [g for g in b1.load_games(con, "test", PERIODS) if g["kickoff"] >= CONFIRM_FROM]
+    else:
+        games = b1.load_games(con, period, PERIODS)
     ko = {ev: (eid, sw) for ev, eid, sw in
           con.execute("SELECT event_ticker, espn_id, swapped FROM kickoffs").fetchall()}
     teams = {t: (h, a) for t, h, a in con.execute(
@@ -268,6 +305,10 @@ def load(con, period):
         g["vol"] = {t: dict(con.execute(
             "SELECT ts, volume FROM backfill_candles WHERE ticker=? AND interval_min=60 AND ts<?",
             (t, g["kickoff"])).fetchall()) for t in g["legs"]}
+        if period == "confirm":
+            add_collector_bars(g, {t: con.execute(
+                "SELECT ts, yes_bid, yes_ask, volume FROM candles WHERE ticker=? AND ts<?",
+                (t, g["kickoff"])).fetchall() for t in g["legs"]})
     return games
 
 
@@ -306,7 +347,7 @@ def _line(name, r):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("mode", choices=["names", "develop", "test"])
+    ap.add_argument("mode", choices=["names", "develop", "test", "confirm"])
     ap.add_argument("--db", default=DB)
     ap.add_argument("--espn", default=ESPN_DIR)
     a = ap.parse_args()
@@ -337,9 +378,14 @@ def main():
     b1.assert_committed(FROZEN)
     with open(FROZEN) as f:
         frozen = json.load(f)
-    games = load(con, "test")
+    out_name = f"batch2_{a.mode}.json"
+    if a.mode == "confirm" and os.path.exists(os.path.join(RESULTS, out_name)):
+        raise SystemExit(f"{out_name} exists: the confirmation run happens once")
+    games = load(con, a.mode)
     by_ev = {g["ev"]: g for g in games}
-    out = {"games": len(games)}
+    out = {"games": len(games), "db": os.path.basename(a.db),
+           "kickoffs": [min((g["kickoff"] for g in games), default=None),
+                        max((g["kickoff"] for g in games), default=None)]}
     for test, params in frozen.items():
         if params is None:
             out[test] = {"status": "too few bets on develop; not run"}
@@ -352,7 +398,7 @@ def main():
         print("   passes:", r["passes"])
     if frozen.get("h4"):
         out["h4_busy_vs_quiet"] = busy_vs_quiet(games, frozen["h4"]["min_volume"])
-    _write("batch2_test.json", out)
+    _write(out_name, out)
 
 
 if __name__ == "__main__":

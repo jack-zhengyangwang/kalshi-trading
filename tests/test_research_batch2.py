@@ -123,3 +123,25 @@ def test_h1_skips_womens_series():
               {"KXUCLWGAME-X-PSG": "yes", "KXUCLWGAME-X-ARS": "no"},
               subs={"KXUCLWGAME-X-PSG": "PSG", "KXUCLWGAME-X-ARS": "Arsenal"})
     assert b2.h1_trades(g, 24) == []
+
+
+def test_hourly_from_snapshots_matches_backfill_convention():
+    # snapshots at 02:00, 02:10, 03:00 (cumulative 66, 76, 76); 03:05 -> hour 04:00
+    rows = [(2 * H, 44, 46, 66), (2 * H + 600, 44, 46, 76), (3 * H, 44, 45, 76),
+            (3 * H + 300, 43, 45, 80)]
+    got = b2.hourly_from_snapshots(rows)
+    assert got[2 * H] == (44, 46, 66)       # first hour carries the running total
+    assert got[3 * H] == (44, 45, 10)       # last snapshot in (02:00, 03:00]; 76 - 66
+    assert got[4 * H] == (43, 45, 4)
+
+
+def test_collector_bars_fill_gaps_but_never_overwrite_backfill():
+    g = _game(BOOK, ROLES, {"H": "yes", "A": "no", "T": "no"})
+    g["vol"] = {"H": {KO - 24 * H: 7}}
+    rows = {"H": [(KO - 24 * H, 1, 2, 500), (KO - 3 * H, 50, 52, 600), (KO + H, 9, 9, 999)]}
+    b2.add_collector_bars(g, rows)
+    assert g["legs"]["H"][KO - 24 * H] == (54, 56)       # backfill kept
+    assert g["vol"]["H"][KO - 24 * H] == 7
+    assert g["legs"]["H"][KO - 3 * H] == (50, 52)        # gap filled
+    assert g["vol"]["H"][KO - 3 * H] == 100
+    assert KO + H not in g["legs"]["H"]                  # nothing at or after kickoff

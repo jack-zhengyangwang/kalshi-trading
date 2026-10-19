@@ -90,3 +90,20 @@ these rules) and Batch 1's test (Sep 1–14, different rules). No rule below was
 - Pre-season friendlies (`KXCLUBFGAME`) are included: same clubs, same fans.
 
 **Results:** [12_BATCH2_RESULTS.md](12_BATCH2_RESULTS.md).
+
+## Addendum 2026-10-19: confirmation run (fixed before it runs)
+
+**Why:** the first test read only `backfill_candles`, which ends **2026-09-14 14:00**. Games after
+that (730 of them in the first snapshot) had no prices, so the "Sep 1–29" test was really
+**Sep 1–14**. The collector's 5-minute `candles` table covers the rest.
+
+- **Data:** a fresh droplet snapshot `history_snapshot_1019.db` (taken 2026-10-19, read-only `VACUUM INTO`), with its kickoff table rebuilt on the droplet.
+- **Games:** settled, ESPN kickoff (same statuses as before), **kickoff on or after 2026-09-16 00:00 UTC**. Even a 24h entry then falls after the backfill's last bar plus its 6h staleness window, so **no game can overlap the first test**.
+- **Prices:** backfill bars where they exist. Otherwise hourly bars built from the collector:
+  - **bid / ask:** last snapshot in (H − 1h, H], the backfill's convention. Checked on overlapping hours: identical.
+  - **volume:** the change in the running total.
+  - Backfill bars are never overwritten.
+- **Rules:** the **same frozen settings** (`results/batch2_frozen.json`, commit `b118046`). No re-tuning.
+- **Pass:** same bar, ≥ 50 bets and 99% interval above 0. Run **once** (`confirm` refuses if its results file exists).
+- **How the two runs combine:** each is reported on its own. A rule counts as an edge only if it **passes the confirmation run**. The first test can't rescue a confirmation fail.
+- **Not included:** the 2,810 `kalshi_only` games (no ESPN kickoff). Adding them would change which games are eligible, so it would be a separate pre-registration.

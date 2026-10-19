@@ -2,7 +2,12 @@
 
 Pre-registration: [11_PREREG_BATCH2.md](11_PREREG_BATCH2.md) (rules committed before any run).
 Data: droplet snapshot, 7,622 settled games to 2026-09-29. Develop: 2,949 games through Aug 31.
-Test: 1,699 games, Sep 1–29, **run once** with the settings frozen in `results/batch2_frozen.json`.
+Test: games closing Sep 1–29, **run once** with the settings frozen in `results/batch2_frozen.json`.
+
+> **Correction (2026-10-19):** the test read only the hourly backfill, which ends Sep 14. The 730
+> games after that had no prices and got no bets, so **the test was effectively Sep 1–14** (about
+> 970 games), not Sep 1–29. A confirmation run on Sep 16 → Oct 19 with the same frozen settings is
+> pre-registered in [11_PREREG_BATCH2.md](11_PREREG_BATCH2.md) (addendum 2026-10-19).
 Run: `python -m wc.research.batch2 develop`, commit, `python -m wc.research.batch2 test`,
 then `python scripts/batch2_charts.py`.
 
