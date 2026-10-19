@@ -76,3 +76,8 @@ these rules) and Batch 1's test (Sep 1–14, different rules). No rule below was
 ## Power caveat
 
 - About 1,900 bets are needed to detect a 1¢ edge. H1 and H2 will have far fewer, so **a fail means "not detected", not "not there"**. The bias-before-costs number says which direction the data leans.
+
+## Added 2026-10-18, before any run (team-name check only)
+
+- Cup series label legs `Reg Time: <team>` (about 2% of legs). Batch 2 strips the prefix and redoes home / away / tie, so those games aren't silently dropped. Batch 1's loader is unchanged.
+- Big-club names on the laptop DB match the fixed list exactly. Look-alikes that are **not** big clubs: Inter Toronto, Inter Bratislava, Inter Milano U23, Juventus Next Gen, Liverpool M, Paris FC, Alcione Milano. The same check is re-run on the droplet snapshot before `develop`.
