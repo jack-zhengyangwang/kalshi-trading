@@ -1,5 +1,7 @@
 # Next chapter (v2): predict better, hold to settlement
 
+> **Closed 2026-10-18 (v2.0.0).** Result: public-data models don't beat or add to the market. See [REPORT_v2.0.md](REPORT_v2.0.md).
+
 **Goal:** make money by being **right more often than the price**, not by how we trade.
 Buy only when our model's probability beats the price by enough, **hold to settlement**, and
 sell early only in rare cases where the market overpays.

@@ -2,7 +2,25 @@
 
 An autonomous system that scans every open Soccer market on Kalshi (discovered live by tag, no hardcoded series list), prices each leg with a blend of structural Poisson/NegBin models + optional LLM + market data, sizes bets via Kelly with hard per-bet caps, and evolves a population of strategy agents through a genetic algorithm.
 
-**Status:** v1.0.0 (research report, 2026-09-28). Trading system v4 (per-league brains, all-soccer). The droplet runs only the price collector; nothing is armed or trading. See [CLAUDE.md](CLAUDE.md) for agent instructions and [docs/REPORT_v1.0.md](docs/REPORT_v1.0.md) for the latest results.
+**Status:** v2.0.0 (research report, 2026-10-18). Trading system v4 (per-league brains, all-soccer). The droplet runs only the price collector; nothing is armed or trading. See [CLAUDE.md](CLAUDE.md) for agent instructions and [docs/REPORT_v2.0.md](docs/REPORT_v2.0.md) for the latest results.
+
+## v2.0.0 — research report: public-data models don't beat Kalshi (2026-10-18)
+
+**[📊 Full report → docs/REPORT_v2.0.md](docs/REPORT_v2.0.md)**
+
+- **0 of 4 models beat the market:** best Brier 0.2027 vs Pinnacle closing 0.1981, 0.2014 vs Kalshi 0.1975.
+- **0 of 4 add information** next to the price; **0 of 12** league-tier × entry-time groups pass (1,363 Kalshi games).
+- **Public data is already in the price.** An edge has to come from information, not modelling.
+- **Left open:** profit on selected bets (never tested), non-public information, other market types.
+
+![Phase 1 gates](docs/findings/img/18_phase1_gates.png)
+
+| Finding | Question | Answer |
+|---|---|---|
+| [07](docs/findings/07_PRICE_VS_MODEL.md) | Can a model ignore the price? | No: price +1.30, Elo −0.03 |
+| [08](docs/findings/08_DATASET.md) | Dataset and bars to beat | Pinnacle 0.1981, Kalshi 0.1975 |
+| [09](docs/findings/09_PHASE1_BASELINES.md) | Do baseline models beat the market? | 0 of 4 |
+| [10](docs/findings/10_PHASE2_TIERS.md) | Is the market weaker in any tier or time? | 0 of 12 groups |
 
 ## v1.0.0 — research report: trading mechanics don't beat Kalshi (2026-09-28)
 
@@ -49,6 +67,7 @@ See [CLAUDE.md](CLAUDE.md) for the full runbook, architecture, and safety rules.
 
 | File | Purpose |
 |------|---------|
+| [docs/REPORT_v2.0.md](docs/REPORT_v2.0.md) | **v2.0 research report: public-data prediction models** |
 | [docs/REPORT_v1.0.md](docs/REPORT_v1.0.md) | **v1.0 research report: all findings, tests and charts** |
 | [docs/NEXT_CHAPTER_v2.md](docs/NEXT_CHAPTER_v2.md) | **v2 plan: prediction model, hold to settlement** |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
