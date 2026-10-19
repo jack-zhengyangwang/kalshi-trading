@@ -1,0 +1,18 @@
+{
+ "h1": {
+  "entry_h": 6
+ },
+ "h2": {
+  "D": 3,
+  "entry_h": 24
+ },
+ "h3": {
+  "entry_h": 6,
+  "min_mid": 25
+ },
+ "h4": {
+  "top_share": 0.1,
+  "min_volume": 9774,
+  "entry_h": 24
+ }
+}
