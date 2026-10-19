@@ -43,3 +43,6 @@ data/kalshi_cache/
 data/research/
 *.db-shm
 *.db-wal
+
+# ── read-only copy of the droplet snapshot (Batch 2) ──
+data/droplet/
