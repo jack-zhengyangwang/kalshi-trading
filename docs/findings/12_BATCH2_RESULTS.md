@@ -14,8 +14,32 @@ then `python scripts/batch2_charts.py`.
 
 ![Batch 2 results](img/20_batch2_results.png)
 
-**Result: 0 of 4 pass.** None of the four casual-bettor mistakes shows up in the price clearly
-enough to profit from, or even to measure.
+**Result: 0 of 4 pass, in the first test and in the confirmation run.** None of the four
+casual-bettor mistakes shows up in the price clearly enough to profit from, or even to measure.
+
+## Confirmation run (2026-10-21, pre-registered 2026-10-19)
+
+Fresh droplet snapshot. **1,555 settled games, kickoffs Sep 16 → Oct 17**, none overlapping the
+first test. Same frozen settings, run once. Results: `results/batch2_confirm.json`.
+
+| | Bet | Bets | Net ¢ / contract, 99% | Bias before costs | Random entry | Verdict |
+|---|---|---|---|---|---|---|
+| H1 | NO on big clubs | 56 | −2.2 [−14.8, +11.9] | +0.1 | −0.7 | ❌ |
+| H2 | Against a team after a ≥3-goal result | 292 | −3.4 [−10.3, +3.7] | −0.6 | −2.5 | ❌ |
+| H3 | YES on the draw | 761 | −3.7 [−7.8, +0.4] | −1.1 | −2.0 | ❌ |
+| H4 | NO on busy favourites | 227 | +0.2 [−7.2, +7.5] | +2.6 | −5.5 | ❌ |
+
+- **The draw and overreaction "no"s hold up.** The draw bias is slightly negative this time (−1.1¢ on 761 bets).
+- **Big clubs: the +4.8¢ lean in the first test disappeared** (+0.1¢). It was noise.
+- **Busy favourites are the one consistent lean.** Bias is +2.9 / +2.1 / +2.6¢ across develop, test and confirm. It's the same direction in three separate periods, but every interval crosses 0. After the spread and fee it nets about 0.
+
+## Not pre-registered, a lead only: favourites in *quiet* games
+
+- The H4 diagnostic also measures favourites in the other 90% of games. In the confirmation run they won **3.3¢ more often than priced** (95% interval +0.8 to +5.9; 99% −0.2 to +7.0). In the first test it was +1.3¢.
+- Put together: busy-game favourites are slightly **overpriced** and quiet-game favourites slightly **underpriced**. That is the shape casual money would leave.
+- **This was found by looking, not pre-registered,** so it is only a lead. Testing it properly needs its own pre-registration and fresh games (from Oct 18 on). It also has to beat the taker cost of about 2–4¢ at favourite prices.
+
+## First test (Sep 1–14)
 
 | | Bet (frozen setting) | Test bets | Net ¢ / contract, 99% | Bias before costs | Random entry | Verdict |
 |---|---|---|---|---|---|---|
@@ -44,4 +68,6 @@ enough to profit from, or even to measure.
 - **Power:** a 1¢ edge needs about 1,900 bets to detect. H1 and H4 are far short of that, so a fail there means "not detected", not "not there".
 - **Hourly bars, taker at the ask:** a real order could do a little better or worse.
 - **Survivorship:** the archive only includes markets Kalshi still lists.
-- **Overlap:** the test period overlaps the Phase 2 data and Batch 1's test, but none of these rules had been run on any data before.
+- **Overlap:** the first test period overlaps the Phase 2 data and Batch 1's test, but none of these rules had been run on any data before. The confirmation period overlaps nothing.
+- **Confirmation prices** are hourly bars rebuilt from the collector's 5-minute snapshots. They match the backfill exactly where the two overlap.
+- **Not covered:** 3,956 `kalshi_only` games in the new snapshot (no ESPN kickoff).

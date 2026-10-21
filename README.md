@@ -21,7 +21,7 @@ An autonomous system that scans every open Soccer market on Kalshi (discovered l
 | [08](docs/findings/08_DATASET.md) | Dataset and bars to beat | Pinnacle 0.1981, Kalshi 0.1975 |
 | [09](docs/findings/09_PHASE1_BASELINES.md) | Do baseline models beat the market? | 0 of 4 |
 | [10](docs/findings/10_PHASE2_TIERS.md) | Is the market weaker in any tier or time? | 0 of 12 groups |
-| [11](docs/findings/11_PREREG_BATCH2.md) · [12](docs/findings/12_BATCH2_RESULTS.md) | Do casual bettors bend prices (big clubs, overreaction, draws, busy favourites)? | 0 of 4 |
+| [11](docs/findings/11_PREREG_BATCH2.md) · [12](docs/findings/12_BATCH2_RESULTS.md) | Do casual bettors bend prices (big clubs, overreaction, draws, busy favourites)? | 0 of 4, test and confirmation |
 
 ## v1.0.0 — research report: trading mechanics don't beat Kalshi (2026-09-28)
 
