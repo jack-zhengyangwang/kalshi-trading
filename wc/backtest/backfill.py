@@ -106,18 +106,29 @@ def fetch_candles(client, series, ticker, start_ts, end_ts, interval_min):
     return out
 
 
-def market_window(market, days):
-    """(start_ts, end_ts) to pull for a market: its life, clipped to `days`."""
+def market_window(market, days, window_hours=None):
+    """(start_ts, end_ts) to pull for a market: its life, clipped to `days`.
+
+    With `window_hours`, only the last `window_hours` before the game's
+    `occurrence_datetime` (Kalshi's expected end, ~kickoff + 3h) — falling back
+    to close_time. Close is NOT a kickoff anchor: on some series it sits 48h
+    after the game. Used for 1-minute pulls around the match only."""
     close = collect.parse_close_time(market.get("close_time"))
     open_ts = collect.parse_close_time(market.get("open_time"))
     if close is None:
         return None, None
-    start = open_ts or (close - days * 86400)
-    return max(start, close - days * 86400), close
+    end = close
+    if window_hours:
+        end = collect.parse_close_time(market.get("occurrence_datetime")) or close
+    start = open_ts or (end - days * 86400)
+    start = max(start, close - days * 86400)
+    if window_hours:
+        start = max(start, end - window_hours * 3600)
+    return start, end
 
 
 def backfill_series(con, client, series, days=60, interval_min=DEFAULT_INTERVAL,
-                    limit=None, dry_run=False):
+                    limit=None, dry_run=False, window_hours=None):
     """Pull every settled market in one series. Returns a small report."""
     try:
         markets = client.list_markets_by_series(series, status="settled")
@@ -151,7 +162,7 @@ def backfill_series(con, client, series, days=60, interval_min=DEFAULT_INTERVAL,
             if result is not None:
                 data.set_result(con, ticker, m.get("status"), result, value)
 
-        start, end = market_window(m, days)
+        start, end = market_window(m, days, window_hours)
         if start is None:
             continue
         raw = fetch_candles(client, series, ticker, start, end, interval_min)
@@ -179,6 +190,9 @@ def main(argv=None):
     ap.add_argument("--max-series", type=int)
     ap.add_argument("--max-markets", type=int,
                     help="cap markets per series (for a quick probe)")
+    ap.add_argument("--window-hours", type=int,
+                    help="pull only this many hours before the game's expected "
+                         "end (occurrence_datetime); for 1-minute match windows")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
 
@@ -198,7 +212,8 @@ def main(argv=None):
     for i, s in enumerate(series_list, 1):
         rep = backfill_series(con, client, s, days=args.days,
                               interval_min=args.interval,
-                              limit=args.max_markets, dry_run=args.dry_run)
+                              limit=args.max_markets, dry_run=args.dry_run,
+                              window_hours=args.window_hours)
         total_m += rep["markets"]
         total_c += rep["candles"]
         if rep.get("error"):

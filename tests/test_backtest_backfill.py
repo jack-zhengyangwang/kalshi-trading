@@ -39,7 +39,17 @@ class FakeClient:
         return {"candlesticks": self.candles}
 
 
-def mkt(ticker="KXEPLGAME-26SEP06ARSCFC-ARS", close="2026-09-06T17:00:00Z",
+import datetime as _dt
+
+# backfill_series keeps only markets that closed within `days` of NOW, so the
+# default fixture closes 5 days ago. A fixed date made these tests start
+# failing a month after they were written.
+LOOKBACK = 30
+RECENT = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=5)).strftime(
+    "%Y-%m-%dT%H:00:00Z")
+
+
+def mkt(ticker="KXEPLGAME-26SEP06ARSCFC-ARS", close=RECENT,
         result="yes", value="1.0000"):
     return {"ticker": ticker, "close_time": close, "status": "finalized",
             "result": result, "settlement_value_dollars": value,
@@ -118,7 +128,7 @@ def test_window_is_clipped_to_the_lookback():
 
 def test_backfill_writes_candles_and_the_outcome(con):
     c = FakeClient(markets=[mkt()], candles=[candle(ts=1000), candle(ts=4600)])
-    rep = backfill.backfill_series(con, c, "KXEPLGAME", days=30)
+    rep = backfill.backfill_series(con, c, "KXEPLGAME", days=LOOKBACK)
     assert rep["markets"] == 1 and rep["candles"] == 2
     m = con.execute("SELECT result, settlement_value, home, away, sub_title "
                     "FROM markets").fetchone()
@@ -129,23 +139,23 @@ def test_backfill_writes_candles_and_the_outcome(con):
 
 def test_a_void_is_backfilled_as_a_void(con):
     c = FakeClient(markets=[mkt(result="scalar", value="0.3300")])
-    backfill.backfill_series(con, c, "S", days=30)
+    backfill.backfill_series(con, c, "S", days=LOOKBACK)
     m = con.execute("SELECT result, settlement_value FROM markets").fetchone()
     assert m["result"] == "void" and m["settlement_value"] == pytest.approx(0.33)
 
 
 def test_backfill_is_idempotent(con):
     c = FakeClient(markets=[mkt()], candles=[candle(ts=1000)])
-    backfill.backfill_series(con, c, "S", days=30)
-    backfill.backfill_series(con, c, "S", days=30)
+    backfill.backfill_series(con, c, "S", days=LOOKBACK)
+    backfill.backfill_series(con, c, "S", days=LOOKBACK)
     assert data.backfill_candle_count(con) == 1
 
 
 def test_resolutions_coexist_without_overwriting(con):
     """Re-pulling at a finer resolution must not destroy the coarse bars."""
     c = FakeClient(markets=[mkt()], candles=[candle(ts=1000)])
-    backfill.backfill_series(con, c, "S", days=30, interval_min=60)
-    backfill.backfill_series(con, c, "S", days=30, interval_min=1)
+    backfill.backfill_series(con, c, "S", days=LOOKBACK, interval_min=60)
+    backfill.backfill_series(con, c, "S", days=LOOKBACK, interval_min=1)
     assert data.backfill_candle_count(con, 60) == 1
     assert data.backfill_candle_count(con, 1) == 1
     assert data.backfill_candle_count(con) == 2
@@ -153,12 +163,12 @@ def test_resolutions_coexist_without_overwriting(con):
 
 def test_markets_older_than_the_lookback_are_skipped(con):
     c = FakeClient(markets=[mkt(close="2020-01-01T00:00:00Z")])
-    assert backfill.backfill_series(con, c, "S", days=30)["markets"] == 0
+    assert backfill.backfill_series(con, c, "S", days=LOOKBACK)["markets"] == 0
 
 
 def test_dry_run_writes_nothing(con):
     c = FakeClient(markets=[mkt()], candles=[candle()])
-    rep = backfill.backfill_series(con, c, "S", days=30, dry_run=True)
+    rep = backfill.backfill_series(con, c, "S", days=LOOKBACK, dry_run=True)
     assert rep["candles"] == 1
     assert data.backfill_candle_count(con) == 0
 
@@ -197,3 +207,30 @@ def test_interval_filter_isolates_a_resolution(con):
              "volume": 1, "open_interest": 1}])
     assert len(data.load_bars(con, source="backfill", interval_min=60)) == 1
     assert len(data.load_bars(con, source="backfill")) == 2
+
+
+def test_window_hours_anchors_on_occurrence_not_close():
+    # close is kickoff + 48h on some series; occurrence (kickoff + 3h) is the anchor
+    m = mkt(close="2026-09-08T17:00:00Z")
+    m["occurrence_datetime"] = "2026-09-06T17:00:00Z"
+    m["open_time"] = "2026-09-01T00:00:00Z"
+    start, end = backfill.market_window(m, days=100, window_hours=30)
+    occ = 1788714000                         # 2026-09-06T17:00:00Z
+    assert (start, end) == (occ - 30 * 3600, occ)
+
+
+def test_window_hours_falls_back_to_close_and_respects_open_time():
+    m = mkt(close="2026-09-06T17:00:00Z")
+    m["open_time"] = "2026-09-06T00:00:00Z"
+    start, end = backfill.market_window(m, days=100, window_hours=30)
+    assert end == 1788714000 and start == 1788652800      # clipped to open
+
+
+def test_backfill_series_passes_window_hours_to_the_fetch():
+    m = mkt()
+    m["occurrence_datetime"] = m["close_time"]
+    c = FakeClient(markets=[m])
+    backfill.backfill_series(None, c, "S", days=LOOKBACK, interval_min=1,
+                             window_hours=2, dry_run=True)
+    p = c.calls[0][1]
+    assert p["end_ts"] - p["start_ts"] == 2 * 3600 and p["period_interval"] == 1
