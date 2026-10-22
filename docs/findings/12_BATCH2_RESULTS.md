@@ -33,6 +33,15 @@ first test. Same frozen settings, run once. Results: `results/batch2_confirm.jso
 - **Big clubs: the +4.8¢ lean in the first test disappeared** (+0.1¢). It was noise.
 - **Busy favourites are the one consistent lean.** Bias is +2.9 / +2.1 / +2.6¢ across develop, test and confirm. It's the same direction in three separate periods, but every interval crosses 0. After the spread and fee it nets about 0.
 
+> **Review note (2026-10-22): H4 in the confirmation run may double-count volume.** The
+> collector-built bars give the first collector hour the market's whole running total. For a game
+> whose market opened before the backfill ended (Sep 14), early volume can then be counted twice
+> (backfill bars + that first hour). That would put more games over the frozen "busy" cut-off
+> (9,774 contracts). The confirmation run has 15% busy games, against the 10% target and 12% in
+> the first test. **Treat the confirmation H4 row and the quiet-favourite lead as provisional**
+> until volume is recomputed from the collector's running total at the entry time. H1–H3 don't
+> use volume and are unaffected.
+
 ## Not pre-registered, a lead only: favourites in *quiet* games
 
 - The H4 diagnostic also measures favourites in the other 90% of games. In the confirmation run they won **3.3¢ more often than priced** (95% interval +0.8 to +5.9; 99% −0.2 to +7.0). In the first test it was +1.3¢.
